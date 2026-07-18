@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Hidden Tower Defence</title>
+    <link rel="stylesheet" href="/static/styles.css">
+  </head>
+  <body>
+    <header>
+      <div>
+        <p class="eyebrow">DEVELOPER-COMMUNITY INTELLIGENCE</p>
+        <h1>Hidden Tower Defence</h1>
+      </div>
+      <div id="trust-state" class="state NORMAL">NORMAL</div>
+    </header>
+    <main>
+      <section class="castle-card" aria-label="Live security visualization">
+        <canvas id="castle" width="960" height="520" aria-label="Pixel-art castle security event visualization"></canvas>
+        <div id="gate-controls" class="gate-controls" hidden>
+          <p id="approval-copy">A traveler is awaiting a decision.</p>
+          <button id="approve">Approve</button>
+          <button id="deny">Deny</button>
+        </div>
+      </section>
+      <aside>
+        <section>
+          <h2>Demo controls</h2>
+          <div id="fixtures" class="button-grid"></div>
+        </section>
+        <section>
+          <h2>Claw intelligence</h2>
+          <form id="query-form">
+            <label for="query">Ask about developer-market trends</label>
+            <textarea id="query" rows="3" placeholder="What AI agent security trends emerged this week?"></textarea>
+            <button>Ask Claw</button>
+          </form>
+          <pre id="query-result">Awaiting a question.</pre>
+        </section>
+        <section>
+          <h2>Selected entity</h2>
+          <pre id="selection">Select a traveler or event.</pre>
+        </section>
+      </aside>
+    </main>
+    <section class="operations">
+      <h2>Operations stream</h2>
+      <ol id="events" aria-live="polite"></ol>
+    </section>
+    <script type="module" src="/static/app.js"></script>
+  </body>
+</html>

@@ -1,0 +1,71 @@
+from __future__ import annotations
+
+from functools import lru_cache
+from pathlib import Path
+from typing import Literal
+
+from pydantic import AliasChoices, Field, SecretStr, field_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    """Runtime configuration. Secret aliases support agent and deployed names."""
+
+    model_config = SettingsConfigDict(case_sensitive=True, extra="ignore")
+
+    environment: Literal["local", "test", "production"] = "local"
+    port: int = Field(default=8080, ge=1, le=65535)
+    data_dir: Path = Path("./data")
+    database_backend: Literal["sqlite", "spanner"] = "sqlite"
+    sqlite_path: Path | None = None
+    spanner_project_id: str | None = None
+    spanner_instance_id: str = "smp-prod-shared-spanner"
+    spanner_database_id: str = "hiddentowerdefence"
+
+    apify_api_token: SecretStr | None = Field(
+        default=None, validation_alias="APIFY_API_TOKEN"
+    )
+    apify_actor_id: str = "gentle_cloud/hacker-news-scraper"
+    apify_fallback_actor_id: str = "onescales/hacker-news-data"
+    apify_interval_seconds: int = Field(default=120, ge=15)
+    heartbeat_interval_seconds: int = Field(default=15, ge=5)
+
+    hiddenlayer_client_id: SecretStr | None = Field(
+        default=None,
+        validation_alias=AliasChoices("HiddenLayer_API_ClientID", "HIDDENLAYER_CLIENT_ID"),
+    )
+    hiddenlayer_client_secret: SecretStr | None = Field(
+        default=None,
+        validation_alias=AliasChoices("HiddenLayer_API_ClientSecret", "HIDDENLAYER_CLIENT_SECRET"),
+    )
+    hiddenlayer_base_url: str = "https://api.hiddenlayer.ai"
+    hiddenlayer_fail_closed: bool = True
+    hiddenlayer_requester_id: str = "hidden-tower-defence"
+
+    nvidia_api_key: SecretStr | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "NVIDIA_nemotron-3-ultra-550b-a55b_API_KEY", "NVIDIA_API_KEY"
+        ),
+    )
+    nvidia_base_url: str = "https://integrate.api.nvidia.com/v1"
+    nvidia_model: str = "nvidia/nemotron-3-ultra-550b-a55b"
+    operator_token: SecretStr | None = Field(default=None, validation_alias="OPERATOR_TOKEN")
+
+    @field_validator("data_dir")
+    @classmethod
+    def expand_data_dir(cls, value: Path) -> Path:
+        return value.expanduser().resolve()
+
+    @property
+    def resolved_sqlite_path(self) -> Path:
+        return self.sqlite_path or self.data_dir / "hidden_tower.db"
+
+    @property
+    def requires_operator_token(self) -> bool:
+        return self.environment == "production"
+
+
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()

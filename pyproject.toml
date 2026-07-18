@@ -1,0 +1,42 @@
+[project]
+name = "hidden-tower-defence"
+version = "0.1.0"
+description = "Secure developer-community intelligence with a policy-driven agent demo."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+  "aiosqlite",
+  "fastapi",
+  "google-cloud-spanner",
+  "httpx",
+  "openai",
+  "pydantic",
+  "pydantic-settings",
+  "uvicorn[standard]",
+]
+
+[dependency-groups]
+dev = [
+  "pytest",
+  "pytest-asyncio",
+  "respx",
+  "ruff",
+]
+
+[project.scripts]
+hidden-tower = "app.main:run"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "ASYNC"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
