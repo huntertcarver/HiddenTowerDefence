@@ -35,7 +35,11 @@ class Orchestrator:
     async def process(self, item: SourceItem, intake_override: ScanResult | None = None) -> bool:
         if not await self._repository.store_source_item(item):
             return False
-        await self._emit(EventType.CONTENT_RECEIVED, item.id, {"title": item.title, "simulated": item.simulated})
+        await self._emit(
+            EventType.CONTENT_RECEIVED,
+            item.id,
+            {"title": item.title, "simulated": item.simulated},
+        )
         intake = intake_override or await self._scan("ingest", item.id, self._source_text(item))
         if intake_override:
             await self._emit(
@@ -49,7 +53,8 @@ class Orchestrator:
                     "simulated": True,
                 },
             )
-        state = state_for_scan(intake, self._settings.hiddenlayer_fail_closed and intake.action == "Error")
+        fail_closed = self._settings.hiddenlayer_fail_closed and intake.action == "Error"
+        state = state_for_scan(intake, fail_closed)
         await self._transition(item.id, state, intake)
         if state == TrustState.LOCKED:
             await self._repository.create_incident(
@@ -105,7 +110,11 @@ class Orchestrator:
             },
         )
         if scan.detected:
-            await self._emit(EventType.DETECTION, item_id, {"boundary": boundary, "scan": scan.model_dump()})
+            await self._emit(
+                EventType.DETECTION,
+                item_id,
+                {"boundary": boundary, "scan": scan.model_dump()},
+            )
         return scan
 
     async def _transition(self, item_id: str, state: TrustState, scan: ScanResult) -> None:

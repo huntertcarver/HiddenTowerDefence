@@ -51,7 +51,8 @@ class HiddenLayerClient:
             response.raise_for_status()
             payload = response.json()
             self._access_token = payload["access_token"]
-            self._token_expires_at = time.monotonic() + max(int(payload.get("expires_in", 300)) - 30, 1)
+            expires_in = max(int(payload.get("expires_in", 300)) - 30, 1)
+            self._token_expires_at = time.monotonic() + expires_in
             return self._access_token
 
     async def scan(self, boundary: str, text: str, model: str | None = None) -> ScanResult:

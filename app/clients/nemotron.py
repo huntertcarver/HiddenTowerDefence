@@ -33,7 +33,9 @@ class NemotronClient:
                 messages=[
                     {
                         "role": "system",
-                        "content": "You are Claw, an evidence-grounded developer intelligence analyst.",
+                        "content": (
+                            "You are Claw, an evidence-grounded developer intelligence analyst."
+                        ),
                     },
                     {"role": "user", "content": prompt},
                 ],
@@ -44,7 +46,10 @@ class NemotronClient:
             except (json.JSONDecodeError, ValueError):
                 if attempt == 1:
                     return self._fallback_triage(item)
-                prompt += "\nYour previous response was invalid. Return only valid JSON matching the schema."
+                prompt += (
+                    "\nYour previous response was invalid. "
+                    "Return only valid JSON matching the schema."
+                )
         return self._fallback_triage(item)
 
     @staticmethod

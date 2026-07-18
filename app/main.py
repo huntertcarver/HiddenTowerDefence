@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import json
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -34,7 +33,9 @@ def app_services(request: Request) -> dict[str, Any]:
 Services = Annotated[dict[str, Any], Depends(app_services)]
 
 
-def require_operator(request: Request, settings: Annotated[Settings, Depends(get_settings)]) -> None:
+def require_operator(
+    request: Request, settings: Annotated[Settings, Depends(get_settings)]
+) -> None:
     if not settings.requires_operator_token:
         return
     token = settings.operator_token
@@ -160,7 +161,11 @@ async def deny(approval_id: str, services: Services) -> dict[str, Any]:
 async def resume(services: Services) -> dict[str, str]:
     await services["repository"].set_trust_state(TrustState.NORMAL)
     await services["events"].publish(
-        TowerEvent(type=EventType.STATE_CHANGED, trust_state=TrustState.NORMAL, payload={"reason": "operator_resume"})
+        TowerEvent(
+            type=EventType.STATE_CHANGED,
+            trust_state=TrustState.NORMAL,
+            payload={"reason": "operator_resume"},
+        )
     )
     return {"trust_state": TrustState.NORMAL.value}
 
@@ -177,7 +182,10 @@ def load_fixtures() -> list[dict[str, Any]]:
 
 @app.get("/api/demo/fixtures")
 async def list_fixtures() -> list[dict[str, str]]:
-    return [{"id": fixture["id"], "risk": fixture["risk"], "title": fixture["title"]} for fixture in load_fixtures()]
+    return [
+        {"id": fixture["id"], "risk": fixture["risk"], "title": fixture["title"]}
+        for fixture in load_fixtures()
+    ]
 
 
 @app.post("/api/demo/fixtures/{fixture_id}/inject", dependencies=[Depends(require_operator)])
