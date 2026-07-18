@@ -1,0 +1,15 @@
+.gcloudignore
+.git
+.github
+.terraform
+.terraform.lock.hcl
+.venv
+__pycache__
+*.py[cod]
+.pytest_cache
+.ruff_cache
+data
+tests
+infra
+END_TO_END_IMPLEMENTATION_PLAN.md
+IMPLEMENTATION_PLAN.md

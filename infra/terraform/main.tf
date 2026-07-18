@@ -28,7 +28,7 @@ resource "google_iam_workload_identity_pool_provider" "github" {
   project                            = var.project_id
   workload_identity_pool_id          = google_iam_workload_identity_pool.github.workload_identity_pool_id
   workload_identity_pool_provider_id = "github-actions"
-  display_name                       = "Hidden Tower GitHub Actions provider"
+  display_name                       = "Hidden Tower GitHub OIDC"
 
   attribute_mapping = {
     "google.subject"       = "assertion.sub"
@@ -169,11 +169,11 @@ resource "google_cloud_run_v2_service" "application" {
 
       dynamic "env" {
         for_each = {
-          APIFY_API_TOKEN = google_secret_manager_secret.runtime["secret--hiddentowerdefence--prod--apify-api-token"].secret_id
-          HiddenLayer_API_ClientID = google_secret_manager_secret.runtime["secret--hiddentowerdefence--prod--hiddenlayer-client-id"].secret_id
-          HiddenLayer_API_ClientSecret = google_secret_manager_secret.runtime["secret--hiddentowerdefence--prod--hiddenlayer-client-secret"].secret_id
+          APIFY_API_TOKEN                           = google_secret_manager_secret.runtime["secret--hiddentowerdefence--prod--apify-api-token"].secret_id
+          HiddenLayer_API_ClientID                  = google_secret_manager_secret.runtime["secret--hiddentowerdefence--prod--hiddenlayer-client-id"].secret_id
+          HiddenLayer_API_ClientSecret              = google_secret_manager_secret.runtime["secret--hiddentowerdefence--prod--hiddenlayer-client-secret"].secret_id
           NVIDIA_nemotron-3-ultra-550b-a55b_API_KEY = google_secret_manager_secret.runtime["secret--hiddentowerdefence--prod--nvidia-api-key"].secret_id
-          OPERATOR_TOKEN = google_secret_manager_secret.runtime["secret--hiddentowerdefence--prod--operator-token"].secret_id
+          OPERATOR_TOKEN                            = google_secret_manager_secret.runtime["secret--hiddentowerdefence--prod--operator-token"].secret_id
         }
         content {
           name = env.key
