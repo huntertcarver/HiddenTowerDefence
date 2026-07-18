@@ -1,0 +1,70 @@
+name: Deploy production
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: hiddentowerdefence-production
+  cancel-in-progress: false
+
+env:
+  PROJECT_ID: smp-shared-prod
+  REGION: us-central1
+  REPOSITORY: shared-platform-images
+  IMAGE_NAME: hiddentowerdefence
+
+jobs:
+  deploy:
+    environment: prod
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT_EMAIL }}
+      - uses: google-github-actions/setup-gcloud@v2
+      - uses: hashicorp/setup-terraform@v3
+      - name: Build and publish immutable container
+        id: image
+        run: |
+          IMAGE="$REGION-docker.pkg.dev/$PROJECT_ID/$REPOSITORY/$IMAGE_NAME:${GITHUB_SHA::12}"
+          gcloud auth configure-docker "$REGION-docker.pkg.dev" --quiet
+          docker build --tag "$IMAGE" .
+          docker push "$IMAGE"
+          DIGEST="$(gcloud artifacts docker images describe "$IMAGE" --format='value(image_summary.digest)')"
+          echo "image_digest=$REGION-docker.pkg.dev/$PROJECT_ID/$REPOSITORY/$IMAGE_NAME@$DIGEST" >> "$GITHUB_OUTPUT"
+      - name: Create the Spanner database
+        working-directory: infra/terraform
+        run: |
+          terraform init \
+            -backend-config="bucket=smp-substrate-tfstate-prod" \
+            -backend-config="prefix=products/hiddentowerdefence/prod"
+          terraform apply -auto-approve \
+            -target=google_spanner_database.application \
+            -var="image_digest=${{ steps.image.outputs.image_digest }}"
+      - name: Install migration dependency
+        run: python -m pip install google-cloud-spanner
+      - name: Apply additive Spanner migrations
+        run: |
+          python -m app.migrations \
+            --project "$PROJECT_ID" \
+            --instance smp-prod-shared-spanner \
+            --database hiddentowerdefence
+      - name: Apply infrastructure with the image digest
+        working-directory: infra/terraform
+        run: |
+          terraform apply -auto-approve \
+            -var="image_digest=${{ steps.image.outputs.image_digest }}"
+      - name: Smoke test deployed health endpoint
+        working-directory: infra/terraform
+        run: |
+          URL="$(terraform output -raw service_uri)"
+          curl --fail --retry 5 --retry-delay 5 "$URL/healthz"
+          curl --fail --retry 5 --retry-delay 5 "$URL/readyz"

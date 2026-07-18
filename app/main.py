@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import logging
+import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -12,6 +14,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from app.clients.apify import ApifyClient
 from app.clients.hiddenlayer import HiddenLayerClient
 from app.clients.nemotron import NemotronClient
 from app.config import Settings, get_settings
@@ -19,7 +22,9 @@ from app.events import EventHub
 from app.heartbeat import Heartbeat
 from app.models import ApprovalStatus, EventType, ScanResult, SourceItem, TowerEvent, TrustState
 from app.orchestrator import Orchestrator
-from app.repositories import SQLiteRepository
+from app.repositories import SpannerRepository, SQLiteRepository
+
+logger = logging.getLogger(__name__)
 
 
 class QueryRequest(BaseModel):
@@ -46,16 +51,39 @@ def require_operator(
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = get_settings()
-    repository = SQLiteRepository(settings.resolved_sqlite_path)
+    if settings.database_backend == "spanner":
+        if settings.spanner_project_id is None:
+            raise RuntimeError("spanner_project_id is required when database_backend is spanner")
+        repository = SpannerRepository(
+            settings.spanner_project_id,
+            settings.spanner_instance_id,
+            settings.spanner_database_id,
+        )
+    else:
+        repository = SQLiteRepository(settings.resolved_sqlite_path)
     await repository.connect()
     events = EventHub(repository)
+    apify = ApifyClient(settings)
     hiddenlayer = HiddenLayerClient(settings)
     nemotron = NemotronClient(settings)
     orchestrator = Orchestrator(settings, repository, events, hiddenlayer, nemotron)
+    last_ingestion_at = 0.0
 
     async def heartbeat_tick() -> None:
+        nonlocal last_ingestion_at
         state = await repository.get_trust_state()
         await events.publish(TowerEvent(type=EventType.HEARTBEAT, trust_state=state))
+        if (
+            settings.apify_api_token is None
+            or time.monotonic() - last_ingestion_at < settings.apify_interval_seconds
+        ):
+            return
+        last_ingestion_at = time.monotonic()
+        try:
+            for item in await apify.fetch_recent(limit=10):
+                await orchestrator.process(item)
+        except Exception:
+            logger.exception("Apify ingestion failed")
 
     heartbeat = Heartbeat(settings.heartbeat_interval_seconds, heartbeat_tick)
     app.state.services = {
@@ -64,12 +92,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         "events": events,
         "orchestrator": orchestrator,
         "heartbeat": heartbeat,
+        "apify": apify,
     }
     await heartbeat.start()
     try:
         yield
     finally:
         await heartbeat.stop()
+        await apify.close()
         await hiddenlayer.close()
         await repository.close()
 
@@ -224,18 +254,24 @@ async def inject_fixture(fixture_id: str, services: Services) -> dict[str, bool]
 
 @app.post("/api/intelligence/query")
 async def intelligence_query(payload: QueryRequest, services: Services) -> dict[str, Any]:
-    events = await services["events"].replay()
-    relevant = [
-        event
-        for event in events
-        if event.type in {EventType.MODEL_COMPLETED, EventType.CONTENT_RECEIVED}
-    ][-10:]
+    triages = await services["repository"].list_triage()
+    topic_counts: dict[str, int] = {}
+    for _, triage in triages:
+        for topic in triage.topics:
+            topic_counts[topic] = topic_counts.get(topic, 0) + 1
+    ranked_topics = sorted(topic_counts.items(), key=lambda entry: entry[1], reverse=True)
     return {
         "scope": "Hacker News developer-community signals",
         "query": payload.query,
-        "evidence_count": len(relevant),
-        "evidence": [event.model_dump(mode="json") for event in relevant],
-        "answer": "Trend aggregation is awaiting sufficient enriched source history.",
+        "evidence_count": len(triages),
+        "trends": [{"topic": topic, "mentions": mentions} for topic, mentions in ranked_topics],
+        "evidence": [
+            {"source_item_id": source_item_id, **triage.model_dump(mode="json")}
+            for source_item_id, triage in triages
+        ],
+        "answer": (
+            "Trend aggregation is based on the stored Hacker News intelligence records shown above."
+        ),
     }
 
 

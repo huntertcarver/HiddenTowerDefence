@@ -79,6 +79,7 @@ class Orchestrator:
         response_scan = await self._scan("response", item.id, triage.model_dump_json())
         state = max(state, state_for_scan(response_scan), key=self._state_rank)
         await self._transition(item.id, state, response_scan)
+        await self._repository.store_triage(item.id, triage)
         await self._emit(
             EventType.MODEL_COMPLETED,
             item.id,
