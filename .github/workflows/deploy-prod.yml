@@ -68,3 +68,11 @@ jobs:
           URL="$(terraform output -raw service_uri)"
           curl --fail --retry 5 --retry-delay 5 "$URL/health"
           curl --fail --retry 5 --retry-delay 5 "$URL/readyz"
+          printf '%s\n' "${{ steps.image.outputs.image_digest }}" > /tmp/image-digest
+          printf '%s\n' "$URL" > /tmp/service-url
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hiddentowerdefence-release-${{ github.sha }}
+          path: |
+            /tmp/image-digest
+            /tmp/service-url
