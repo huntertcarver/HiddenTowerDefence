@@ -1,6 +1,6 @@
 status: passed
-validated_at: "2026-07-19T03:55:00Z"
-commit_under_test: "working-tree-before-final-commit"
+validated_at: "2026-07-19T12:54:00Z"
+commit_under_test: "platform integration tree after 72be41f"
 
 scope:
   product_backend: passed
@@ -10,7 +10,7 @@ scope:
   event_reconnect: passed
   phaser_game: passed
   container_contract: passed
-  platform_changes: none
+  platform_integration: passed
 
 tests:
   ruff:
@@ -29,6 +29,9 @@ tests:
     skipped_reason: "bounded paid-provider suite is opt-in"
   compileall:
     command: "python -m compileall -q app tests"
+    result: passed
+  clean_migration_install:
+    command: "python -m pip install . && python -m app.migrations --backend sqlite"
     result: passed
   frontend_build:
     command: "npm run build --prefix frontend"
@@ -55,6 +58,17 @@ tests:
       - trust transition and taint
       - approval exactly-once claim
       - approval finalization
+  terraform:
+    command: >-
+      terraform fmt -check -recursive &&
+      terraform init -backend=false &&
+      terraform validate
+    result: passed
+    provider_version: "7.40.0"
+  deployment_workflow:
+    yaml_parse: passed
+    application_install: passed
+    explicit_spanner_backend: passed
   live_providers:
     command: "RUN_LIVE_TESTS=1 pytest -q tests/test_live_providers.py"
     result: passed
@@ -78,14 +92,15 @@ migrations:
   out_of_order_test: passed
 
 container:
-  command: "docker build -t hiddentowerdefence:product ."
+  command: "docker build -t hiddentowerdefence:platform-integrated ."
   result: passed
-  image_id: "sha256:c74e67e4c906b52c552788679d2e737ffbe5ed89d1fa11e0dd21ce934553fa09"
+  image_id: "sha256:ea7e8937ae560ab85969b808bb52cf472d462d15b3ca7dc2e76488f1318a0a55"
   runtime_user: non_root
   smoke:
     root: 200
     health: 200
     readyz: 200
+    api_state: 200
     game_javascript: 200
     game_css: 200
     websocket_replay: passed
@@ -102,7 +117,7 @@ platform_contract:
   migrations: "python -m app.migrations"
   static_delivery: "same FastAPI service"
   production_database: "Cloud Spanner"
-  required_change: none
+  required_change: "one-time bucket-scoped deployer state IAM bootstrap"
 
 known_limitations:
   - >-
@@ -112,5 +127,7 @@ known_limitations:
     The production Phaser bundle is approximately 1.39 MB before gzip
     (approximately 363 KB gzip).
   - >-
-    Production deployment and infrastructure mutation were intentionally not
-    performed because they are owned by the platform workstream.
+    Production deployment remains blocked until an authenticated platform
+    administrator performs the documented one-time bucket-scoped
+    roles/storage.objectAdmin grant for the deployer. This workspace has no
+    GCP credentials and did not perform that mutation.
