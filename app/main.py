@@ -128,6 +128,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 payload={"lease_owner": lease_owner[:8]},
             )
         )
+        if settings.environment == "test":
+            return
         if (
             settings.apify_api_token is None
             or time.monotonic() - last_ingestion_at < settings.apify_interval_seconds

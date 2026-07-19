@@ -8,6 +8,9 @@ data/
 .local/
 coverage.xml
 htmlcov/
+app/static/game/
+frontend/node_modules/
+frontend/test-results/
 terraform.tfstate
 terraform.tfstate.*
 .terraform/

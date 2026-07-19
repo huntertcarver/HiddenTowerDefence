@@ -4,49 +4,109 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Hidden Tower Defence</title>
-    <link rel="stylesheet" href="/static/styles.css">
+    <meta
+      name="description"
+      content="Live Hacker News developer-community intelligence protected at every model and tool boundary."
+    >
+    <link rel="stylesheet" href="/static/game/game.css">
   </head>
   <body>
-    <header>
-      <div>
-        <p class="eyebrow">DEVELOPER-COMMUNITY INTELLIGENCE</p>
-        <h1>Hidden Tower Defence</h1>
-      </div>
-      <div id="trust-state" class="state NORMAL">NORMAL</div>
-    </header>
-    <main>
-      <section class="castle-card" aria-label="Live security visualization">
-        <canvas id="castle" width="960" height="520" aria-label="Pixel-art castle security event visualization"></canvas>
-        <div id="gate-controls" class="gate-controls" hidden>
-          <p id="approval-copy">A traveler is awaiting a decision.</p>
-          <button id="approve">Approve</button>
-          <button id="deny">Deny</button>
+    <main id="game-shell">
+      <div id="game-root" aria-label="Live top-down castle security game"></div>
+
+      <header class="hud top-hud">
+        <div class="brand">
+          <span class="brand-mark" aria-hidden="true">♜</span>
+          <div>
+            <p>HACKER NEWS INTELLIGENCE</p>
+            <h1>Hidden Tower Defence</h1>
+          </div>
         </div>
-      </section>
-      <aside>
-        <section>
-          <h2>Demo controls</h2>
-          <div id="fixtures" class="button-grid"></div>
-        </section>
-        <section>
-          <h2>Claw intelligence</h2>
+        <div class="hud-status">
+          <span id="connection-state" class="connection offline">CONNECTING</span>
+          <strong id="trust-state" class="trust-state normal">NORMAL</strong>
+          <button id="operator-button" class="operator-button">Operator login</button>
+        </div>
+      </header>
+
+      <aside class="hud control-dock" aria-label="Operator and intelligence controls">
+        <details open>
+          <summary>Gate decisions</summary>
+          <div id="approval-panel" class="approval-panel">
+            <p>No travelers awaiting a decision.</p>
+          </div>
+        </details>
+        <details>
+          <summary>Demo sequence</summary>
+          <div class="button-row">
+            <button id="demo-start">Start</button>
+            <button id="demo-stop">Stop</button>
+            <button id="demo-reset">Reset</button>
+          </div>
+          <div id="fixture-list" class="fixture-list"></div>
+          <p class="hint">All simulated travelers are visibly marked in the event stream.</p>
+        </details>
+        <details>
+          <summary>Ask Claw</summary>
           <form id="query-form">
-            <label for="query">Ask about developer-market trends</label>
-            <textarea id="query" rows="3" placeholder="What AI agent security trends emerged this week?"></textarea>
-            <button>Ask Claw</button>
+            <label for="query">Developer-community trend question</label>
+            <textarea
+              id="query"
+              name="query"
+              rows="3"
+              minlength="3"
+              maxlength="500"
+              placeholder="What prompt-injection trends emerged over the last 7 days?"
+              required
+            ></textarea>
+            <button type="submit">Analyze evidence</button>
           </form>
           <pre id="query-result">Awaiting a question.</pre>
-        </section>
-        <section>
-          <h2>Selected entity</h2>
-          <pre id="selection">Select a traveler or event.</pre>
-        </section>
+        </details>
+        <details>
+          <summary>Selected entity</summary>
+          <div id="entity-details"><p>Select a traveler or console entry.</p></div>
+        </details>
       </aside>
+
+      <section id="console" class="hud console" aria-label="Sanitized backend console">
+        <div class="console-header">
+          <div>
+            <span class="console-dot"></span>
+            <h2>Sanitized backend activity</h2>
+          </div>
+          <button id="console-toggle" aria-label="Collapse or expand console">⌄</button>
+        </div>
+        <div id="console-list" class="console-list" aria-live="polite"></div>
+      </section>
     </main>
-    <section class="operations">
-      <h2>Operations stream</h2>
-      <ol id="events" aria-live="polite"></ol>
-    </section>
-    <script type="module" src="/static/app.js"></script>
+
+    <dialog id="operator-dialog">
+      <form id="operator-login">
+        <div class="dialog-heading">
+          <span aria-hidden="true">⚿</span>
+          <div>
+            <h2>Operator verification</h2>
+            <p>The token is submitted once and is never stored in browser JavaScript.</p>
+          </div>
+        </div>
+        <label for="operator-token">Operator token</label>
+        <input
+          id="operator-token"
+          name="token"
+          type="password"
+          autocomplete="current-password"
+          required
+        >
+        <p id="login-error" class="error" role="alert"></p>
+        <div class="button-row end">
+          <button id="dialog-cancel" type="button" class="secondary">Cancel</button>
+          <button type="submit">Verify</button>
+        </div>
+      </form>
+    </dialog>
+
+    <noscript>This live security game requires JavaScript.</noscript>
+    <script type="module" src="/static/game/game.js"></script>
   </body>
 </html>
