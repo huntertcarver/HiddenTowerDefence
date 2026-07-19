@@ -29,9 +29,10 @@ No long-lived Google key is permitted in GitHub Actions.
 
 ## Terraform backend access bootstrap
 
-The deployer requires object-level read/write/delete/list access to the single
-Terraform state bucket. Terraform codifies this as a bucket-scoped
-`roles/storage.objectAdmin` member; do not grant a project-wide storage role.
+The deployer requires object read/write/delete/list access and IAM policy
+read/write access on the single Terraform state bucket because Terraform also
+maintains its bucket IAM member. Terraform codifies this as a bucket-scoped
+`roles/storage.admin` member; do not grant a project-wide storage role.
 
 If `terraform init` fails with `storage.objects.list` before Terraform can read
 its own state, an existing privileged platform administrator must perform the
@@ -41,7 +42,7 @@ one-time bootstrap:
 gcloud storage buckets add-iam-policy-binding \
   gs://smp-substrate-tfstate-prod \
   --member="serviceAccount:hiddentower-deployer-prod@smp-shared-prod.iam.gserviceaccount.com" \
-  --role="roles/storage.objectAdmin"
+  --role="roles/storage.admin"
 ```
 
 This workspace cannot self-bootstrap through the normal deployment workflow:
@@ -50,6 +51,12 @@ Cloud Storage IAM can be eventually consistent, so wait several minutes and
 retry `Deploy production` if the first initialization still returns 403.
 After the workflow succeeds, normal Terraform state records and maintains the
 same bucket IAM member.
+
+The full platform root also refreshes edge, certificate, DNS, identity,
+logging, and monitoring resources during an image deployment. The deployer has
+service-specific viewer roles for those resources. These roles are read-only;
+platform mutation remains a privileged bootstrap/operator responsibility while
+the deployer retains write access only for its release responsibilities.
 
 ## Rollback
 
