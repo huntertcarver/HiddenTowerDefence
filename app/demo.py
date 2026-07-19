@@ -175,6 +175,8 @@ class DemoService:
                 source_item_id, "automatic demo operator resolution"
             )
         for incident in await self._repository.list_incidents(active_only=True):
+            if incident.source_item_id != source_item_id:
+                continue
             if incident.status.value == "open":
                 await self._repository.acknowledge_incident(incident.id)
             await self._repository.resolve_incident(

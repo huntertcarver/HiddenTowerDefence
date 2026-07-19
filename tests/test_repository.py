@@ -1,5 +1,8 @@
 from pathlib import Path
 
+from app.config import Settings
+from app.demo import DemoService
+from app.events import EventHub
 from app.models import (
     Approval,
     ApprovalStatus,
@@ -119,6 +122,46 @@ async def test_repository_persists_security_and_product_state(tmp_path: Path) ->
         updated_alert = await repository.update_mock_alert_state(alert.id, read=True)
         assert updated_alert is not None
         assert updated_alert.read
+    finally:
+        await repository.close()
+
+
+async def test_demo_recovery_only_resolves_current_demo_incident(tmp_path: Path) -> None:
+    repository = SQLiteRepository(tmp_path / "tower.db")
+    await repository.connect()
+    try:
+        demo_item = SourceItem(
+            id="fixture:locked:cycle",
+            title="Demo item",
+            source="fixture",
+            simulated=True,
+            run_id="demo:cycle",
+        )
+        real_item = SourceItem(id="hn:real", title="Real incident")
+        await repository.store_source_item(demo_item)
+        await repository.store_source_item(real_item)
+        demo_incident = await repository.create_incident(
+            Incident(source_item_id=demo_item.id, severity="High", summary="Demo")
+        )
+        real_incident = await repository.create_incident(
+            Incident(source_item_id=real_item.id, severity="High", summary="Real")
+        )
+
+        service = DemoService(
+            Settings(environment="test", data_dir=tmp_path),
+            repository,
+            EventHub(repository),
+            object(),
+        )
+        service._last_source_item_id = demo_item.id
+
+        await service._recover_for_next_step()
+
+        incidents = await repository.list_incidents(active_only=False)
+        by_id = {incident.id: incident for incident in incidents}
+        assert by_id[demo_incident.id].status == IncidentStatus.RESOLVED
+        assert by_id[real_incident.id].status == IncidentStatus.OPEN
+        assert by_id[real_incident.id].resolution is None
     finally:
         await repository.close()
 
