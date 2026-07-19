@@ -327,7 +327,9 @@ async def resume(services: Services) -> dict[str, str]:
         "operator_resume",
         allow_deescalation=True,
     )
-    if transition is None and current != TrustState.NORMAL:
+    if transition is None:
+        if current == TrustState.NORMAL:
+            return {"trust_state": TrustState.NORMAL.value}
         raise HTTPException(status_code=409, detail="Trust state cannot be resumed")
     await services["events"].publish(
         TowerEvent(

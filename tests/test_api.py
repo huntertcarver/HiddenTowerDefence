@@ -93,6 +93,24 @@ def test_csrf_and_session_tampering_are_rejected(monkeypatch, tmp_path: Path) ->
         assert client.get("/api/operator/session").status_code == 401
 
 
+def test_resume_while_normal_does_not_emit_state_change(monkeypatch, tmp_path: Path) -> None:
+    configure_test_environment(monkeypatch, tmp_path)
+    with TestClient(app) as client:
+        headers = operator_headers(client)
+        before = client.get("/api/events").json()
+
+        response = client.post("/api/state/resume", headers=headers)
+
+        assert response.status_code == 200
+        assert response.json() == {"trust_state": "NORMAL"}
+        after = client.get("/api/events").json()
+        assert [
+            event
+            for event in after[len(before) :]
+            if event["type"] == "state_changed"
+        ] == []
+
+
 def test_malicious_tool_argument_is_blocked(monkeypatch, tmp_path: Path) -> None:
     configure_test_environment(monkeypatch, tmp_path)
     with TestClient(app) as client:
