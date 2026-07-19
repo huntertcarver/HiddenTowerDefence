@@ -1,4 +1,4 @@
-import type { Fixture, SceneSnapshot, TowerEvent } from "./types";
+import type { Evidence, Fixture, SceneSnapshot, TowerEvent } from "./types";
 
 export class ApiClient {
   private csrfToken: string | null = null;
@@ -36,6 +36,10 @@ export class ApiClient {
 
   async fixtures(): Promise<Fixture[]> {
     return this.json<Fixture[]>("/api/demo/fixtures");
+  }
+
+  async evidence(sourceItemId: string): Promise<Evidence> {
+    return this.json<Evidence>(`/api/evidence/${encodeURIComponent(sourceItemId)}`);
   }
 
   async mutate(path: string, body?: unknown): Promise<Response> {

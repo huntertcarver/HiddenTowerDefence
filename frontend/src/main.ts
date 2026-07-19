@@ -3,7 +3,7 @@ import Phaser from "phaser";
 import { ApiClient, EventConnection } from "./api";
 import "./styles.css";
 import { TowerScene } from "./TowerScene";
-import type { Approval, SceneSnapshot, TowerEvent } from "./types";
+import type { Approval, EntityHoverDetail, Evidence, TowerEvent } from "./types";
 
 const api = new ApiClient();
 const towerScene = new TowerScene();
@@ -26,6 +26,7 @@ const loginError = requiredElement("#login-error");
 const fixtureList = requiredElement("#fixture-list");
 const queryForm = document.querySelector<HTMLFormElement>("#query-form");
 const queryResult = requiredElement("#query-result");
+const tooltip = requiredElement("#entity-tooltip");
 
 async function bootstrap(): Promise<void> {
   const [snapshot, fixtures, session] = await Promise.all([
@@ -204,6 +205,145 @@ function updateConnection(connected: boolean): void {
   connectionBadge.textContent = connected ? "LIVE" : "RECONNECTING";
   connectionBadge.className = connected ? "connection live" : "connection offline";
 }
+
+// ------------------------------------------------------------ hover tooltip
+
+const ROLE_INFO: Record<string, { name: string; blurb: string }> = {
+  traveler: {
+    name: "Incoming content",
+    blurb: "A new item approaching the gate for its first security scan.",
+  },
+  citizen: {
+    name: "Clean content",
+    blurb: "Passed every scan and was admitted into the castle.",
+  },
+  restricted: {
+    name: "Awaiting decision",
+    blurb: "Flagged as suspicious. Held at the gate until an operator approves or denies it.",
+  },
+  enemy: {
+    name: "Blocked threat",
+    blurb: "High-severity detection. The agent is locked and this content never reaches the model.",
+  },
+  guard: {
+    name: "Gate guard",
+    blurb: "Every traveler is scanned by HiddenLayer at this checkpoint.",
+  },
+  worker: {
+    name: "Tool run",
+    blurb: "The model requested a controlled tool. Arguments and results are scanned too.",
+  },
+  messenger: {
+    name: "Report delivery",
+    blurb: "Carrying the model's triage summary out of the keep.",
+  },
+};
+
+const evidenceCache = new Map<string, Promise<Evidence>>();
+let hoveredEntityId: string | null = null;
+
+function evidenceFor(entityId: string): Promise<Evidence> {
+  const sourceId = entityId.replace(/:(worker|messenger)$/, "");
+  let pending = evidenceCache.get(sourceId);
+  if (!pending) {
+    pending = api.evidence(sourceId);
+    evidenceCache.set(sourceId, pending);
+    pending.catch(() => evidenceCache.delete(sourceId));
+  }
+  return pending;
+}
+
+function verdictFromScans(scans: Evidence["scans"]): { text: string; tone: string } {
+  if (scans.some((scan) => scan.action.toLowerCase() === "block")) {
+    return { text: "BLOCKED", tone: "locked" };
+  }
+  if (scans.some((scan) => scan.detected || scan.action.toLowerCase() === "alert")) {
+    return { text: "FLAGGED", tone: "restricted" };
+  }
+  return { text: "CLEAN", tone: "normal" };
+}
+
+function positionTooltip(x: number, y: number): void {
+  const width = tooltip.offsetWidth || 300;
+  const height = tooltip.offsetHeight || 160;
+  const left = Math.min(x + 18, window.innerWidth - width - 12);
+  const top = Math.min(y + 18, window.innerHeight - height - 12);
+  tooltip.style.left = `${Math.max(12, left)}px`;
+  tooltip.style.top = `${Math.max(12, top)}px`;
+}
+
+function renderTooltip(detail: EntityHoverDetail, evidence: Evidence | null): void {
+  const role = ROLE_INFO[detail.kind] ?? { name: detail.kind, blurb: "" };
+  const parts: string[] = [];
+  parts.push(`
+    <header class="tooltip-header kind-${escapeText(detail.kind)}">
+      <strong>${escapeText(role.name)}</strong>
+      ${detail.simulated || evidence?.source.simulated ? '<span class="tag simulated">SIMULATED</span>' : ""}
+    </header>
+  `);
+  if (evidence) {
+    const verdict = verdictFromScans(evidence.scans);
+    const sourceName =
+      evidence.source.source === "fixture" ? "Demo fixture" : "Hacker News";
+    const excerpt = evidence.source.text.trim().slice(0, 180);
+    parts.push(`
+      <p class="tooltip-title">${escapeText(evidence.source.title)}</p>
+      <p class="tooltip-meta">
+        <span class="tag">${escapeText(sourceName)}</span>
+        <span class="tag verdict-${verdict.tone}">${verdict.text}</span>
+      </p>
+      ${excerpt ? `<p class="tooltip-excerpt">${escapeText(excerpt)}${evidence.source.text.length > 180 ? "…" : ""}</p>` : ""}
+    `);
+    if (evidence.scans.length) {
+      const rows = evidence.scans
+        .map(
+          (scan) => `
+            <li>
+              <span>${escapeText(scan.boundary)}</span>
+              <span class="scan-${scan.detected ? "flagged" : "clear"}">
+                ${escapeText(scan.action)}${scan.threat_level && scan.threat_level !== "None" ? ` · ${escapeText(scan.threat_level)}` : ""}
+              </span>
+            </li>
+          `,
+        )
+        .join("");
+      parts.push(`<ul class="tooltip-scans">${rows}</ul>`);
+    }
+    parts.push('<p class="tooltip-hint">Click to pin full history in the side panel</p>');
+  } else if (detail.entityId) {
+    parts.push(`<p class="tooltip-excerpt">${escapeText(role.blurb)}</p>`);
+    parts.push('<p class="tooltip-hint">Loading content…</p>');
+  } else {
+    parts.push(`<p class="tooltip-excerpt">${escapeText(role.blurb)}</p>`);
+  }
+  tooltip.innerHTML = parts.join("");
+}
+
+window.addEventListener("tower-entity-hover", (event) => {
+  const detail = (event as CustomEvent<EntityHoverDetail | null>).detail;
+  if (!detail) {
+    hoveredEntityId = null;
+    tooltip.classList.remove("visible");
+    return;
+  }
+  tooltip.classList.add("visible");
+  positionTooltip(detail.x, detail.y);
+  const hoverKey = detail.entityId ?? `role:${detail.kind}`;
+  if (hoveredEntityId === hoverKey) return;
+  hoveredEntityId = hoverKey;
+  renderTooltip(detail, null);
+  if (!detail.entityId) return;
+  evidenceFor(detail.entityId)
+    .then((evidence) => {
+      if (hoveredEntityId !== hoverKey) return;
+      renderTooltip(detail, evidence);
+      positionTooltip(detail.x, detail.y);
+    })
+    .catch(() => {
+      if (hoveredEntityId !== hoverKey) return;
+      renderTooltip(detail, null);
+    });
+});
 
 window.addEventListener("tower-entity-selected", (event) => {
   selectedEntityId = (event as CustomEvent<string>).detail;

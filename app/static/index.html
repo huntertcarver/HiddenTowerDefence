@@ -36,6 +36,19 @@
             <p>No travelers awaiting a decision.</p>
           </div>
         </details>
+        <details open>
+          <summary>Who is who</summary>
+          <ul class="legend" aria-label="Character legend">
+            <li><span class="chip" style="--chip: #5da9e9"></span><strong>Traveler</strong> — content arriving for its first scan</li>
+            <li><span class="chip" style="--chip: #67d391"></span><strong>Citizen</strong> — clean content, admitted inside</li>
+            <li><span class="chip" style="--chip: #c07fd6"></span><strong>Suspect</strong> — flagged, waiting on your approve/deny</li>
+            <li><span class="chip" style="--chip: #e65b5b"></span><strong>Enemy</strong> — high-severity threat, blocked</li>
+            <li><span class="chip" style="--chip: #b8bdc7"></span><strong>Guard</strong> — HiddenLayer scan checkpoint</li>
+            <li><span class="chip" style="--chip: #e0a458"></span><strong>Worker</strong> — a tool run in the workshop</li>
+            <li><span class="chip" style="--chip: #8ecdf5"></span><strong>Messenger</strong> — the model's report leaving the keep</li>
+          </ul>
+          <p class="hint">Hover any character to see the exact content it represents.</p>
+        </details>
         <details>
           <summary>Demo sequence</summary>
           <div class="button-row">
@@ -105,6 +118,8 @@
         </div>
       </form>
     </dialog>
+
+    <div id="entity-tooltip" role="tooltip" aria-hidden="true"></div>
 
     <noscript>This live security game requires JavaScript.</noscript>
     <script type="module" src="/static/game/game.js"></script>
