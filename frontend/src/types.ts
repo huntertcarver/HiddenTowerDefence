@@ -34,6 +34,11 @@ export interface SceneSnapshot {
   trust_state: TrustState;
   approvals: Approval[];
   incidents: Incident[];
+  active_items: Array<{
+    id: string;
+    simulated: boolean;
+    processing_status: string;
+  }>;
   demo: Record<string, unknown>;
 }
 

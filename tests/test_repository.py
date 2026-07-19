@@ -3,9 +3,11 @@ from pathlib import Path
 from app.models import (
     Approval,
     ApprovalStatus,
+    Brief,
     EventType,
     Incident,
     IncidentStatus,
+    MockAlert,
     ProcessingStatus,
     SourceItem,
     TaintRecord,
@@ -101,6 +103,22 @@ async def test_repository_persists_security_and_product_state(tmp_path: Path) ->
         )
         assert [saved.id for saved in await repository.list_watchlists()] == [watchlist.id]
         assert await repository.delete_watchlist(watchlist.id)
+
+        brief = await repository.store_brief(
+            Brief(source_item_id=item.id, title="Brief", summary="Summary")
+        )
+        updated_brief = await repository.update_brief_state(
+            brief.id, read=True, resolved=True
+        )
+        assert updated_brief is not None
+        assert updated_brief.read and updated_brief.resolved
+
+        alert = await repository.store_mock_alert(
+            MockAlert(source_item_id=item.id, subject="Alert", body="Draft")
+        )
+        updated_alert = await repository.update_mock_alert_state(alert.id, read=True)
+        assert updated_alert is not None
+        assert updated_alert.read
     finally:
         await repository.close()
 

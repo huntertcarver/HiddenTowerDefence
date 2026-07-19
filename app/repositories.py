@@ -38,6 +38,10 @@ from app.models import (
 )
 
 
+def _json_text(value: Any) -> str:
+    return value if isinstance(value, str) else json.dumps(value, sort_keys=True)
+
+
 class Repository(Protocol):
     async def connect(self) -> None: ...
 
@@ -917,6 +921,30 @@ class SQLiteRepository:
         )
         return [Brief.model_validate_json(row["payload"]) for row in await cursor.fetchall()]
 
+    async def update_brief_state(
+        self, brief_id: str, *, read: bool | None = None, resolved: bool | None = None
+    ) -> Brief | None:
+        async with self.transaction():
+            row = await (
+                await self.connection.execute(
+                    "SELECT payload FROM briefs WHERE id = ?", (brief_id,)
+                )
+            ).fetchone()
+            if row is None:
+                return None
+            brief = Brief.model_validate_json(row["payload"])
+            updated = brief.model_copy(
+                update={
+                    "read": brief.read if read is None else read,
+                    "resolved": brief.resolved if resolved is None else resolved,
+                }
+            )
+            await self.connection.execute(
+                "UPDATE briefs SET payload = ? WHERE id = ?",
+                (updated.model_dump_json(), brief_id),
+            )
+            return updated
+
     async def store_mock_alert(self, alert: MockAlert) -> MockAlert:
         async with self.transaction():
             await self.connection.execute(
@@ -941,6 +969,30 @@ class SQLiteRepository:
         return [
             MockAlert.model_validate_json(row["payload"]) for row in await cursor.fetchall()
         ]
+
+    async def update_mock_alert_state(
+        self, alert_id: str, *, read: bool | None = None, resolved: bool | None = None
+    ) -> MockAlert | None:
+        async with self.transaction():
+            row = await (
+                await self.connection.execute(
+                    "SELECT payload FROM mock_outbox WHERE id = ?", (alert_id,)
+                )
+            ).fetchone()
+            if row is None:
+                return None
+            alert = MockAlert.model_validate_json(row["payload"])
+            updated = alert.model_copy(
+                update={
+                    "read": alert.read if read is None else read,
+                    "resolved": alert.resolved if resolved is None else resolved,
+                }
+            )
+            await self.connection.execute(
+                "UPDATE mock_outbox SET payload = ? WHERE id = ?",
+                (updated.model_dump_json(), alert_id),
+            )
+            return updated
 
     async def store_quarantine(self, quarantine: QuarantineRecord) -> QuarantineRecord:
         async with self.transaction():
@@ -1173,7 +1225,7 @@ class SpannerRepository:
                 )
                 results: list[dict[str, Any]] = []
                 for row in rows:
-                    scan = ScanRecord.model_validate_json(row[0])
+                    scan = ScanRecord.model_validate_json(_json_text(row[0]))
                     payload = scan.model_dump(exclude={"raw"}, mode="json")
                     if include_raw:
                         payload["raw"] = scan.raw
@@ -1232,7 +1284,7 @@ class SpannerRepository:
                     },
                 )
                 row = next(iter(rows), None)
-                return str(row[0]) if row else None
+                return _json_text(row[0]) if row else None
 
         return await asyncio.to_thread(read)
 
@@ -1255,7 +1307,7 @@ class SpannerRepository:
                     param_types["status"] = spanner.param_types.STRING
                 sql += f" ORDER BY updated_at DESC LIMIT {safe_limit}"
                 return [
-                    str(row[0])
+                    _json_text(row[0])
                     for row in snapshot.execute_sql(
                         sql, params=params, param_types=param_types
                     )
@@ -1286,7 +1338,7 @@ class SpannerRepository:
             "SELECT payload FROM SourceItems WHERE id = @id",
             {"id": source_item_id},
         )
-        return SourceItem.model_validate_json(row[0]) if row else None
+        return SourceItem.model_validate_json(_json_text(row[0])) if row else None
 
     async def update_source_status(
         self,
@@ -1319,7 +1371,9 @@ class SpannerRepository:
                     ORDER BY created_at ASC LIMIT {safe_limit * 5}
                     """
                 )
-                items = [SourceItem.model_validate_json(row[0]) for row in rows]
+                items = [
+                    SourceItem.model_validate_json(_json_text(row[0])) for row in rows
+                ]
                 return [
                     item
                     for item in items
@@ -1488,8 +1542,10 @@ class SpannerRepository:
                 event_id = 1
             else:
                 row = next(
-                    transaction.execute_sql(
-                        "SELECT next_id FROM EventSequence WHERE name = 'events'"
+                    iter(
+                        transaction.execute_sql(
+                            "SELECT next_id FROM EventSequence WHERE name = 'events'"
+                        )
                     )
                 )
                 event_id = int(row[0])
@@ -1531,7 +1587,7 @@ class SpannerRepository:
 
     @staticmethod
     def _event_from_spanner_row(row: Sequence[Any]) -> TowerEvent:
-        payload = json.loads(row[4])
+        payload = json.loads(_json_text(row[4]))
         return TowerEvent(
             schema_version=int(payload.pop("_schema_version", 1)),
             id=row[0],
@@ -1627,7 +1683,7 @@ class SpannerRepository:
                         id=row[0],
                         source_item_id=row[1],
                         action=row[2],
-                        arguments=json.loads(row[3]),
+                        arguments=json.loads(_json_text(row[3])),
                         status=row[4],
                         created_at=datetime.fromisoformat(row[5]),
                         resolved_at=datetime.fromisoformat(row[6]) if row[6] else None,
@@ -1652,7 +1708,7 @@ class SpannerRepository:
             row = next(iter(rows), None)
             if row is None:
                 return None
-            approval = Approval.model_validate_json(row[0])
+            approval = Approval.model_validate_json(_json_text(row[0]))
             if approval.status != ApprovalStatus.PENDING:
                 return None
             updated = approval.model_copy(update={"status": status, "resolved_at": now})
@@ -1699,7 +1755,7 @@ class SpannerRepository:
             row = next(iter(rows), None)
             if row is None:
                 return None
-            approval = Approval.model_validate_json(row[0])
+            approval = Approval.model_validate_json(_json_text(row[0]))
             if approval.status != ApprovalStatus.EXECUTING:
                 return None
             updated = approval.model_copy(update={"status": status, "resolved_at": now})
@@ -1842,7 +1898,10 @@ class SpannerRepository:
                     ORDER BY created_at DESC LIMIT {safe_limit}
                     """
                 )
-                return [(row[0], TriageResult.model_validate_json(row[1])) for row in rows]
+                return [
+                    (row[0], TriageResult.model_validate_json(_json_text(row[1])))
+                    for row in rows
+                ]
 
         return await asyncio.to_thread(read)
 
@@ -1975,6 +2034,22 @@ class SpannerRepository:
             for payload in await self._list_records("brief")
         ]
 
+    async def update_brief_state(
+        self, brief_id: str, *, read: bool | None = None, resolved: bool | None = None
+    ) -> Brief | None:
+        payload = await self._get_record("brief", brief_id)
+        if payload is None:
+            return None
+        brief = Brief.model_validate_json(payload)
+        updated = brief.model_copy(
+            update={
+                "read": brief.read if read is None else read,
+                "resolved": brief.resolved if resolved is None else resolved,
+            }
+        )
+        await self.store_brief(updated)
+        return updated
+
     async def store_mock_alert(self, alert: MockAlert) -> MockAlert:
         await self._put_record(
             "mock_alert",
@@ -1991,6 +2066,22 @@ class SpannerRepository:
             MockAlert.model_validate_json(payload)
             for payload in await self._list_records("mock_alert")
         ]
+
+    async def update_mock_alert_state(
+        self, alert_id: str, *, read: bool | None = None, resolved: bool | None = None
+    ) -> MockAlert | None:
+        payload = await self._get_record("mock_alert", alert_id)
+        if payload is None:
+            return None
+        alert = MockAlert.model_validate_json(payload)
+        updated = alert.model_copy(
+            update={
+                "read": alert.read if read is None else read,
+                "resolved": alert.resolved if resolved is None else resolved,
+            }
+        )
+        await self.store_mock_alert(updated)
+        return updated
 
     async def store_quarantine(self, quarantine: QuarantineRecord) -> QuarantineRecord:
         await self._put_record(

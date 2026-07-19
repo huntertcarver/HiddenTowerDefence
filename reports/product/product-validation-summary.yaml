@@ -1,0 +1,116 @@
+status: passed
+validated_at: "2026-07-19T03:55:00Z"
+commit_under_test: "working-tree-before-final-commit"
+
+scope:
+  product_backend: passed
+  security_boundaries: passed
+  intelligence: passed
+  operator_sessions: passed
+  event_reconnect: passed
+  phaser_game: passed
+  container_contract: passed
+  platform_changes: none
+
+tests:
+  ruff:
+    command: "ruff check app tests"
+    result: passed
+  pytest:
+    command: >-
+      SPANNER_EMULATOR_HOST=127.0.0.1:9010
+      SPANNER_PROJECT_ID=test-project
+      SPANNER_INSTANCE_ID=test-instance
+      SPANNER_DATABASE_ID=hiddentowerdefence
+      pytest -q
+    result: passed
+    passed: 23
+    skipped: 1
+    skipped_reason: "bounded paid-provider suite is opt-in"
+  compileall:
+    command: "python -m compileall -q app tests"
+    result: passed
+  frontend_build:
+    command: "npm run build --prefix frontend"
+    result: passed
+    bundle_bytes:
+      javascript: 1391774
+      css: 6315
+  browser:
+    command: "npm run test:browser --prefix frontend"
+    result: passed
+    passed: 6
+    coverage:
+      - full viewport desktop
+      - full viewport tablet
+      - clean citizen/tool path
+      - restricted approval path
+      - console/entity synchronization
+      - refresh reconstruction
+  spanner_emulator:
+    result: passed
+    coverage:
+      - source deduplication
+      - global event ordering
+      - trust transition and taint
+      - approval exactly-once claim
+      - approval finalization
+  live_providers:
+    command: "RUN_LIVE_TESTS=1 pytest -q tests/test_live_providers.py"
+    result: passed
+    passed: 1
+    duration_seconds: 81.07
+    bounds:
+      apify_max_items: 3
+      hiddenlayer_clean_scan: passed
+      hiddenlayer_adversarial_scan: passed
+      nemotron_minimal_triage: passed
+      persisted_full_pipeline: passed
+      five_boundaries: passed
+    secrets_printed: false
+
+migrations:
+  sqlite_first_deploy: passed
+  sqlite_repeated_noop: passed
+  spanner_first_deploy_emulator: passed
+  spanner_repeated_noop: passed
+  checksum_mismatch_test: passed
+  out_of_order_test: passed
+
+container:
+  command: "docker build -t hiddentowerdefence:product ."
+  result: passed
+  image_id: "sha256:c74e67e4c906b52c552788679d2e737ffbe5ed89d1fa11e0dd21ce934553fa09"
+  runtime_user: non_root
+  smoke:
+    root: 200
+    health: 200
+    readyz: 200
+    game_javascript: 200
+    game_css: 200
+    websocket_replay: passed
+    websocket_event_schema_version: 1
+
+browser_artifacts:
+  desktop: "/opt/cursor/artifacts/hidden-tower-desktop-final2-20260719.png"
+  tablet: "/opt/cursor/artifacts/hidden-tower-tablet-final2-20260719.png"
+
+platform_contract:
+  port: "PORT (default 8080)"
+  liveness: "/health"
+  readiness: "/readyz"
+  migrations: "python -m app.migrations"
+  static_delivery: "same FastAPI service"
+  production_database: "Cloud Spanner"
+  required_change: none
+
+known_limitations:
+  - >-
+    Starlette emits a deprecation warning for its current TestClient/httpx
+    integration; application behavior and tests pass.
+  - >-
+    The production Phaser bundle is approximately 1.39 MB before gzip
+    (approximately 363 KB gzip).
+  - >-
+    Production deployment and infrastructure mutation were intentionally not
+    performed because they are owned by the platform workstream.

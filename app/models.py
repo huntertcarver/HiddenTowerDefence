@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from enum import StrEnum
-from typing import Any
+from typing import Any, Literal
 from uuid import uuid4
 
 from pydantic import BaseModel, Field, HttpUrl
@@ -159,7 +159,12 @@ class TriageResult(BaseModel):
     technologies: list[str] = Field(default_factory=list)
     repositories: list[str] = Field(default_factory=list)
     cves: list[str] = Field(default_factory=list)
-    recommended_action: str = "save_brief"
+    recommended_action: Literal[
+        "save_brief",
+        "draft_alert",
+        "quarantine_item",
+        "mock_web_fetch",
+    ] = "save_brief"
     action_arguments: dict[str, Any] = Field(default_factory=dict)
     rationale: str = ""
 

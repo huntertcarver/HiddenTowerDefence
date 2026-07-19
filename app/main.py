@@ -56,6 +56,11 @@ class WatchlistRequest(BaseModel):
     minimum_engagement: int | None = Field(default=None, ge=0)
 
 
+class InboxStateRequest(BaseModel):
+    read: bool | None = None
+    resolved: bool | None = None
+
+
 def app_services(request: Request) -> dict[str, Any]:
     return request.app.state.services
 
@@ -232,12 +237,14 @@ async def get_scene(services: Services) -> dict[str, Any]:
     state = await services["repository"].get_trust_state()
     approvals = await services["repository"].list_approvals()
     incidents = await services["repository"].list_incidents(active_only=True)
+    active_items = await services["repository"].list_pending_source_items(limit=100)
     return {
         "schema_version": 1,
         "cursor": await services["repository"].latest_event_id(),
         "trust_state": state.value,
         "approvals": [approval.model_dump(mode="json") for approval in approvals],
         "incidents": [incident.model_dump(mode="json") for incident in incidents],
+        "active_items": [item.model_dump(mode="json") for item in active_items],
         "demo": await services["demo"].state(),
     }
 
@@ -499,10 +506,34 @@ async def list_briefs(services: Services) -> list[dict[str, Any]]:
     return [brief.model_dump(mode="json") for brief in briefs]
 
 
+@app.patch("/api/briefs/{brief_id}", dependencies=[Depends(require_operator)])
+async def update_brief(
+    brief_id: str, payload: InboxStateRequest, services: Services
+) -> dict[str, Any]:
+    brief = await services["repository"].update_brief_state(
+        brief_id, read=payload.read, resolved=payload.resolved
+    )
+    if brief is None:
+        raise HTTPException(status_code=404, detail="Brief not found")
+    return brief.model_dump(mode="json")
+
+
 @app.get("/api/mock-alerts")
 async def list_mock_alerts(services: Services) -> list[dict[str, Any]]:
     alerts = await services["repository"].list_mock_alerts()
     return [alert.model_dump(mode="json") for alert in alerts]
+
+
+@app.patch("/api/mock-alerts/{alert_id}", dependencies=[Depends(require_operator)])
+async def update_mock_alert(
+    alert_id: str, payload: InboxStateRequest, services: Services
+) -> dict[str, Any]:
+    alert = await services["repository"].update_mock_alert_state(
+        alert_id, read=payload.read, resolved=payload.resolved
+    )
+    if alert is None:
+        raise HTTPException(status_code=404, detail="Mock alert not found")
+    return alert.model_dump(mode="json")
 
 
 @app.get("/api/quarantines")

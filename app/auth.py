@@ -51,6 +51,8 @@ class OperatorSessionManager:
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
         configured = settings.operator_token
+        if settings.environment == "production" and configured is None:
+            raise RuntimeError("OPERATOR_TOKEN is required in production")
         self._operator_token = (
             configured.get_secret_value() if configured else "local-operator"
         )

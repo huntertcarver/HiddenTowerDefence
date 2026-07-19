@@ -131,3 +131,19 @@ def test_malicious_tool_result_is_blocked(monkeypatch, tmp_path: Path) -> None:
             and event["payload"].get("reason") == "result_scan"
             for event in events
         )
+
+
+def test_websocket_replay_resumes_after_cursor_without_duplicates(
+    monkeypatch, tmp_path: Path
+) -> None:
+    configure_test_environment(monkeypatch, tmp_path)
+    with TestClient(app) as client:
+        headers = operator_headers(client)
+        client.post("/api/demo/fixtures/clean-ai-tool/inject", headers=headers)
+        events = client.get("/api/events?limit=500").json()
+        cursor = events[-3]["id"]
+        expected = [event["id"] for event in events if event["id"] > cursor][:2]
+        with client.websocket_connect(f"/ws/events?after_id={cursor}") as websocket:
+            received = [websocket.receive_json()["id"] for _ in range(2)]
+        assert received == expected
+        assert len(received) == len(set(received))

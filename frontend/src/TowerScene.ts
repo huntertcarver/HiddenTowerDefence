@@ -44,6 +44,9 @@ export class TowerScene extends Phaser.Scene {
 
   applySnapshot(snapshot: SceneSnapshot): void {
     this.setTrustState(snapshot.trust_state);
+    for (const item of snapshot.active_items) {
+      this.ensureEntity(item.id, "traveler", item.simulated);
+    }
     for (const approval of snapshot.approvals) {
       this.ensureEntity(approval.source_item_id, "restricted", false);
     }
@@ -173,7 +176,6 @@ export class TowerScene extends Phaser.Scene {
     );
 
     this.drawCastle(graphics);
-    graphics.destroy();
     this.add
       .text(800, 100, "HIDDEN TOWER", {
         fontFamily: "monospace",
