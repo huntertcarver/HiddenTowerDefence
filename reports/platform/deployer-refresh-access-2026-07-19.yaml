@@ -1,0 +1,52 @@
+status: completed
+performed_at: "2026-07-19T14:26:44Z"
+failed_workflow_run: "https://github.com/huntertcarver/HiddenTowerDefence/actions/runs/29690491982"
+
+principal: "serviceAccount:hiddentower-deployer-prod@smp-shared-prod.iam.gserviceaccount.com"
+
+project_read_roles:
+  - "roles/certificatemanager.viewer"
+  - "roles/compute.viewer"
+  - "roles/dns.reader"
+  - "roles/iam.roleViewer"
+  - "roles/iam.serviceAccountViewer"
+  - "roles/iam.workloadIdentityPoolViewer"
+  - "roles/logging.viewer"
+  - "roles/monitoring.viewer"
+
+terraform_state_bucket:
+  bucket: "smp-substrate-tfstate-prod"
+  role: "roles/storage.admin"
+  scope: bucket_only
+  redundant_object_admin_removed: true
+
+bootstrap:
+  source: "available GCP bootstrap administrator credential"
+  targeted_terraform_apply:
+    result: passed
+    resources_added: 9
+    resources_changed: 0
+    resources_destroyed: 0
+  policy_readback:
+    project_roles_verified: 8
+    bucket_role_verified: true
+  secrets_printed: false
+
+full_production_plan:
+  credential: bootstrap_administrator
+  image_digest: "sha256:0892d9e1c083d97b002ce975c1e31821b62c6067dde4f53ebc456672f02d602a"
+  detailed_exit_code: 0
+  result: no_changes
+
+security:
+  project_owner_granted: false
+  project_editor_granted: false
+  project_viewer_basic_role_granted: false
+  project_iam_admin_granted: false
+  service_account_token_creator_granted: false
+  platform_write_roles_added: false
+
+next_action:
+  - "Merge the IAM remediation pull request."
+  - "Observe the main-branch Deploy production workflow under WIF."
+  - "Confirm migrations, image apply, and product smoke checks pass."
