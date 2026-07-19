@@ -1,0 +1,32 @@
+status: completed
+performed_at: "2026-07-19T13:10:51Z"
+
+bucket: "smp-substrate-tfstate-prod"
+member: "serviceAccount:hiddentower-deployer-prod@smp-shared-prod.iam.gserviceaccount.com"
+role: "roles/storage.objectAdmin"
+scope: bucket_only
+
+authorization:
+  source: "available GCP bootstrap administrator credential"
+  user_authorized: true
+  long_lived_key_added_to_github: false
+
+verification:
+  bucket_policy_contains_member: true
+  bucket_policy_role_matches: true
+  deployer_impersonation_probe:
+    status: not_available
+    reason: >-
+      The bootstrap credential can administer the bucket policy but does not
+      have iam.serviceAccounts.getAccessToken on the deployer. The main-branch
+      WIF deployment workflow is the authoritative deployer execution test.
+  secrets_printed: false
+
+terraform:
+  authoritative_resource: "google_storage_bucket_iam_member.deployer_terraform_state"
+  configuration_validation: passed
+
+next_action:
+  - "Merge integration PR #3 after approval."
+  - "Observe the main-branch Deploy production workflow."
+  - "Confirm Terraform initializes the GCS backend without storage.objects.list errors."

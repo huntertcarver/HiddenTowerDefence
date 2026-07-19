@@ -1,5 +1,5 @@
 status: passed
-validated_at: "2026-07-19T12:54:00Z"
+validated_at: "2026-07-19T13:10:51Z"
 commit_under_test: "platform integration tree after 72be41f"
 
 integration:
@@ -9,7 +9,8 @@ integration:
   pull_request_ci:
     validate: passed
     terraform: passed
-  production_workflow: "pending merge and one-time state-bucket IAM bootstrap"
+  state_bucket_iam_bootstrap: passed
+  production_workflow: "pending merge; main-branch WIF execution not yet triggered"
 
 scope:
   product_backend: passed
@@ -126,7 +127,7 @@ platform_contract:
   migrations: "python -m app.migrations"
   static_delivery: "same FastAPI service"
   production_database: "Cloud Spanner"
-  required_change: "one-time bucket-scoped deployer state IAM bootstrap"
+  required_change: none
 
 known_limitations:
   - >-
@@ -136,7 +137,7 @@ known_limitations:
     The production Phaser bundle is approximately 1.39 MB before gzip
     (approximately 363 KB gzip).
   - >-
-    Production deployment remains blocked until an authenticated platform
-    administrator performs the documented one-time bucket-scoped
-    roles/storage.objectAdmin grant for the deployer. This workspace has no
-    GCP credentials and did not perform that mutation.
+    Production deployment awaits integration PR #3 merge. The bucket-scoped
+    state IAM bootstrap is complete, but the deployer's WIF execution can only
+    be proven by the main-branch workflow because the provider condition is
+    intentionally restricted to main.
