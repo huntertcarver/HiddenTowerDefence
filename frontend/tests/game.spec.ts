@@ -44,6 +44,27 @@ test("operator can acknowledge resolve and resume an incident", async ({
   await expect(page.locator(".trust-state")).toHaveText("NORMAL");
 });
 
+test("operator can clear all incidents and restart the demo", async ({
+  page,
+}, testInfo) => {
+  test.skip(testInfo.project.name !== "desktop-chromium");
+  await page.goto("/");
+  await login(page);
+  await page.getByText("Demo sequence", { exact: true }).click();
+  await page.getByRole("button", { name: "locked", exact: true }).click();
+  await page.getByRole("button", { name: "locked", exact: true }).click();
+  await expect(page.locator(".incident-card")).toHaveCount(2);
+  page.once("dialog", (dialog) => dialog.accept());
+  await page
+    .getByRole("button", { name: "Clear all & restart demo" })
+    .click();
+  await expect(page.locator(".incident-card")).toHaveCount(0);
+  await expect(page.locator(".trust-state")).toHaveText("NORMAL");
+  const stopDemo = page.getByRole("button", { name: "Stop demo" });
+  await expect(stopDemo).toBeVisible();
+  await stopDemo.click();
+});
+
 test("animates clean and restricted paths with console synchronization", async ({
   page,
 }) => {
@@ -57,7 +78,13 @@ test("animates clean and restricted paths with console synchronization", async (
   });
   const cleanEvent = page.locator(".console-entry").filter({ hasText: "content_received" }).first();
   await cleanEvent.click();
-  await expect(page.locator("#entity-details h3")).toContainText("fixture:clean-ai-tool");
+  await expect(page.locator("#entity-details h3")).toContainText(
+    "open source tool for testing AI agent workflows",
+  );
+  await expect(page.locator("#entity-details")).toContainText(
+    /Currently being evaluated|security and intelligence processing completed/,
+  );
+  await expect(page.locator(".classification-grid")).toContainText("Category");
 
   await page.getByRole("button", { name: "restricted", exact: true }).click();
   const approval = page

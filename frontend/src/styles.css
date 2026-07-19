@@ -272,6 +272,19 @@ details > :not(summary) {
   font-size: 0.62rem;
 }
 
+.scenario-guide {
+  display: grid;
+  gap: 0.3rem;
+  padding-left: 1.15rem;
+  color: var(--muted);
+  font-size: 0.66rem;
+  line-height: 1.35;
+}
+
+.scenario-guide strong {
+  color: #d9e8f2;
+}
+
 label {
   display: block;
   color: var(--muted);
@@ -314,6 +327,47 @@ pre {
   overflow-wrap: anywhere;
   color: #8dc8f0;
   font-size: 0.75rem;
+}
+
+#entity-details h4 {
+  margin: 0.75rem 0 0.35rem;
+  color: #d9e8f2;
+  font-size: 0.7rem;
+}
+
+#entity-details a {
+  color: #8dc8f0;
+  font-size: 0.7rem;
+}
+
+#entity-details ul {
+  padding-left: 1.2rem;
+  color: var(--muted);
+  font-size: 0.68rem;
+}
+
+.decision-summary {
+  padding: 0.45rem;
+  border-left: 3px solid var(--blue);
+  background: #10263a;
+  color: #d9e8f2 !important;
+}
+
+.classification-grid {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.3rem 0.55rem;
+  font-size: 0.68rem;
+}
+
+.classification-grid dt {
+  color: #7fa4c2;
+}
+
+.classification-grid dd {
+  margin: 0;
+  color: #e6edf3;
+  overflow-wrap: anywhere;
 }
 
 #entity-details ol {

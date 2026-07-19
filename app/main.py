@@ -46,6 +46,10 @@ class IncidentResolutionRequest(BaseModel):
     resolution: str = Field(min_length=3, max_length=500)
 
 
+class BulkIncidentResetRequest(IncidentResolutionRequest):
+    restart_demo: bool = True
+
+
 class WatchlistRequest(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     search_terms: list[str] = Field(default_factory=list)
@@ -354,6 +358,66 @@ async def list_incidents(services: Services) -> list[dict[str, Any]]:
     return [incident.model_dump(mode="json") for incident in incidents]
 
 
+@app.post("/api/incidents/resolve-all", dependencies=[Depends(require_operator)])
+async def resolve_all_incidents(
+    payload: BulkIncidentResetRequest,
+    services: Services,
+) -> dict[str, Any]:
+    repository = services["repository"]
+    await services["demo"].reset()
+    incidents = await repository.list_incidents(active_only=True)
+    resolved_count = 0
+    for incident in incidents:
+        if incident.status.value == "open":
+            await repository.acknowledge_incident(incident.id)
+        resolved = await repository.resolve_incident(
+            incident.id, payload.resolution
+        )
+        if resolved is None:
+            continue
+        resolved_count += 1
+        await services["events"].publish(
+            TowerEvent(
+                type=EventType.INCIDENT_RESOLVED,
+                source_item_id=resolved.source_item_id,
+                entity_id=resolved.source_item_id,
+                payload={
+                    "incident_id": resolved.id,
+                    "resolution": payload.resolution,
+                    "bulk_reset": True,
+                },
+            )
+        )
+    taints_resolved = await repository.resolve_all_taints(payload.resolution)
+    current = await repository.get_trust_state()
+    transition = await repository.transition_trust_state(
+        TrustState.NORMAL,
+        "operator_bulk_reset",
+        allow_deescalation=True,
+    )
+    if transition:
+        await services["events"].publish(
+            TowerEvent(
+                type=EventType.STATE_CHANGED,
+                trust_state=TrustState.NORMAL,
+                payload={
+                    "from": transition.from_state.value,
+                    "to": transition.to_state.value,
+                    "reason": "operator_bulk_reset",
+                },
+            )
+        )
+    if payload.restart_demo:
+        await services["demo"].start()
+    return {
+        "incidents_resolved": resolved_count,
+        "taints_resolved": taints_resolved,
+        "trust_state": TrustState.NORMAL.value,
+        "demo_running": payload.restart_demo,
+        "previous_trust_state": current.value,
+    }
+
+
 @app.post(
     "/api/incidents/{incident_id}/acknowledge",
     dependencies=[Depends(require_operator)],
@@ -561,9 +625,26 @@ async def source_evidence(source_item_id: str, services: Services) -> dict[str, 
     if item is None:
         raise HTTPException(status_code=404, detail="Source evidence not found")
     scans = await services["repository"].list_scans(source_item_id, include_raw=False)
+    triage = await services["repository"].get_triage(source_item_id)
+    decision = {
+        "pending": "Queued for evaluation",
+        "processing": "Currently being evaluated",
+        "completed": "Admitted; security and intelligence processing completed",
+        "blocked": "Blocked by security policy",
+        "failed": "Processing failed safely",
+    }[item.processing_status.value]
     return {
         "source": item.model_dump(mode="json"),
         "scans": scans,
+        "triage": triage.model_dump(mode="json") if triage else None,
+        "decision": {
+            "status": item.processing_status.value,
+            "summary": decision,
+            "latest_action": scans[-1]["action"] if scans else "Pending",
+            "latest_threat_level": (
+                scans[-1]["threat_level"] if scans else "Unknown"
+            ),
+        },
         "scope": IntelligenceService.SCOPE,
     }
 
