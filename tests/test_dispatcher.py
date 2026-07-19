@@ -21,6 +21,19 @@ class FailingHiddenLayerClient:
         raise AssertionError("dispatcher test should use simulated scan results")
 
 
+class FailingControlledTools:
+    async def execute(
+        self,
+        source_item_id: str,
+        name: str,
+        arguments: dict[str, object],
+        *,
+        operation_id: str,
+    ) -> dict[str, object]:
+        del source_item_id, name, arguments, operation_id
+        raise RuntimeError("simulated tool failure")
+
+
 async def test_stale_tool_request_is_replayed(tmp_path: Path) -> None:
     repository = SQLiteRepository(tmp_path / "tower.db")
     await repository.connect()
@@ -225,5 +238,47 @@ async def test_controlled_tool_side_effect_id_is_deterministic(tmp_path: Path) -
         briefs = await repository.list_briefs()
         assert len(briefs) == 1
         assert briefs[0].id == "tool-operation-id"
+    finally:
+        await repository.close()
+
+
+async def test_approval_finalizes_when_tool_execution_errors(tmp_path: Path) -> None:
+    repository = SQLiteRepository(tmp_path / "tower.db")
+    await repository.connect()
+    try:
+        item = SourceItem(id="hn:approval-error", title="Approval error")
+        await repository.store_source_item(item)
+        await repository.claim_source_item(item.id, "worker", 300)
+        arguments = {"title": item.title, "summary": "Failure"}
+        events = EventHub(repository)
+        dispatcher = ToolDispatcher(
+            repository,
+            events,
+            SecurityScanner(repository, events, FailingHiddenLayerClient()),
+            FailingControlledTools(),  # type: ignore[arg-type]
+        )
+        deferred = await dispatcher.request(
+            item.id,
+            "save_brief",
+            arguments,
+            TrustState.RESTRICTED,
+            argument_scan_override=ScanResult(
+                boundary=ScanBoundary.TOOL_ARGUMENTS
+            ),
+        )
+        approval = await repository.get_approval_for_tool_request(deferred.id)
+        assert approval is not None
+
+        resolved = await dispatcher.approve(approval.id)
+
+        assert resolved is not None
+        assert resolved.status.value == "failed"
+        request = await repository.get_tool_request(deferred.id)
+        assert request is not None
+        assert request.status == ToolStatus.FAILED
+        source = await repository.get_source_item(item.id)
+        assert source is not None
+        assert source.processing_status.value == "failed"
+        assert await repository.list_approvals() == []
     finally:
         await repository.close()

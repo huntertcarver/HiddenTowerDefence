@@ -162,20 +162,30 @@ class Orchestrator:
     async def _lock_item(
         self, item_id: str, scan: ScanRecord, location: str
     ) -> None:
-        incident = await self._repository.create_incident(
-            Incident(
-                source_item_id=item_id,
-                severity=scan.threat_level,
-                summary=f"High-risk content was blocked {location}.",
+        incidents = await self._repository.list_incidents(active_only=True)
+        incident = next(
+            (
+                existing
+                for existing in incidents
+                if existing.source_item_id == item_id
+            ),
+            None,
+        )
+        if incident is None:
+            incident = await self._repository.create_incident(
+                Incident(
+                    source_item_id=item_id,
+                    severity=scan.threat_level,
+                    summary=f"High-risk content was blocked {location}.",
+                )
             )
-        )
+            await self._emit(
+                EventType.INCIDENT_CREATED,
+                item_id,
+                {"incident_id": incident.id, "severity": scan.threat_level},
+                TrustState.LOCKED,
+            )
         await self._repository.update_source_status(item_id, ProcessingStatus.BLOCKED)
-        await self._emit(
-            EventType.INCIDENT_CREATED,
-            item_id,
-            {"incident_id": incident.id, "severity": scan.threat_level},
-            TrustState.LOCKED,
-        )
 
     async def _emit(
         self,

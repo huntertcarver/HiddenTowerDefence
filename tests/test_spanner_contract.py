@@ -106,6 +106,32 @@ async def test_spanner_repository_deduplication_and_event_ordering() -> None:
             is None
         )
 
+        deferred_request, created = await repository.create_tool_request(
+            ToolRequest(
+                source_item_id=source_id,
+                name="draft_alert",
+                idempotency_key=uuid4().hex,
+            )
+        )
+        assert created
+        deferred_result = await repository.defer_tool_request_with_approval(
+            deferred_request.id,
+            Approval(
+                id=deferred_request.id,
+                source_item_id=source_id,
+                action=deferred_request.name,
+                idempotency_key=deferred_request.idempotency_key,
+                tool_request_id=deferred_request.id,
+            ),
+        )
+        assert deferred_result is not None
+        assert deferred_result[0].status == ToolStatus.DEFERRED
+        repeated_defer = await repository.defer_tool_request_with_approval(
+            deferred_request.id, deferred_result[1]
+        )
+        assert repeated_defer is not None
+        assert repeated_defer[1].id == deferred_request.id
+
         approval = await repository.create_approval(
             Approval(
                 id=tool_request.id,

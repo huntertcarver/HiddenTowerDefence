@@ -79,6 +79,10 @@ class Repository(Protocol):
         self, tool_request_id: str
     ) -> Approval | None: ...
 
+    async def defer_tool_request_with_approval(
+        self, request_id: str, approval: Approval
+    ) -> tuple[ToolRequest, Approval] | None: ...
+
 
 class SQLiteRepository:
     """Local and test persistence compatible with the production repository contract."""
@@ -637,6 +641,85 @@ class SQLiteRepository:
                 else None
             ),
         )
+
+    async def defer_tool_request_with_approval(
+        self, request_id: str, approval: Approval
+    ) -> tuple[ToolRequest, Approval] | None:
+        async with self.transaction():
+            request_row = await (
+                await self.connection.execute(
+                    "SELECT payload FROM tool_requests WHERE id = ?", (request_id,)
+                )
+            ).fetchone()
+            if request_row is None:
+                return None
+            request = ToolRequest.model_validate_json(request_row["payload"])
+            if request.status not in {ToolStatus.REQUESTED, ToolStatus.DEFERRED}:
+                return None
+
+            approval_row = await (
+                await self.connection.execute(
+                    """
+                    SELECT id, source_item_id, action, arguments, status,
+                           idempotency_key, tool_request_id, created_at, resolved_at
+                    FROM approvals WHERE tool_request_id = ?
+                    ORDER BY created_at ASC LIMIT 1
+                    """,
+                    (request_id,),
+                )
+            ).fetchone()
+            if approval_row is None:
+                await self.connection.execute(
+                    """
+                    INSERT INTO approvals
+                    (id, source_item_id, action, arguments, status,
+                     idempotency_key, tool_request_id, created_at, resolved_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        approval.id,
+                        approval.source_item_id,
+                        approval.action,
+                        json.dumps(approval.arguments, sort_keys=True),
+                        approval.status.value,
+                        approval.idempotency_key,
+                        approval.tool_request_id,
+                        approval.created_at.isoformat(),
+                        None,
+                    ),
+                )
+                stored_approval = approval
+            else:
+                stored_approval = Approval(
+                    id=approval_row["id"],
+                    source_item_id=approval_row["source_item_id"],
+                    action=approval_row["action"],
+                    arguments=json.loads(approval_row["arguments"]),
+                    status=approval_row["status"],
+                    idempotency_key=approval_row["idempotency_key"],
+                    tool_request_id=approval_row["tool_request_id"],
+                    created_at=datetime.fromisoformat(approval_row["created_at"]),
+                    resolved_at=(
+                        datetime.fromisoformat(approval_row["resolved_at"])
+                        if approval_row["resolved_at"]
+                        else None
+                    ),
+                )
+            deferred = request.model_copy(
+                update={
+                    "status": ToolStatus.DEFERRED,
+                    "failure_reason": None,
+                    "completed_at": None,
+                }
+            )
+            await self.connection.execute(
+                """
+                UPDATE tool_requests SET status = ?, payload = ?, completed_at = NULL
+                WHERE id = ?
+                """,
+                (ToolStatus.DEFERRED.value, deferred.model_dump_json(), request_id),
+            )
+            return deferred, stored_approval
 
     async def resolve_approval(self, approval_id: str, status: ApprovalStatus) -> Approval | None:
         now = datetime.now().astimezone().isoformat()
@@ -1350,6 +1433,113 @@ class SpannerRepository:
                 return approval
         return None
 
+    async def defer_tool_request_with_approval(
+        self, request_id: str, approval: Approval
+    ) -> tuple[ToolRequest, Approval] | None:
+        now = datetime.now(UTC)
+
+        def defer(transaction: spanner.Transaction) -> tuple[str, str] | None:
+            request_rows = transaction.execute_sql(
+                """
+                SELECT payload FROM ProductRecords
+                WHERE record_type = 'tool_request' AND record_id = @id
+                """,
+                params={"id": request_id},
+                param_types={"id": spanner.param_types.STRING},
+            )
+            request_row = next(iter(request_rows), None)
+            if request_row is None:
+                return None
+            request = ToolRequest.model_validate_json(_json_text(request_row[0]))
+            if request.status not in {ToolStatus.REQUESTED, ToolStatus.DEFERRED}:
+                return None
+
+            approval_rows = transaction.execute_sql(
+                """
+                SELECT payload FROM ProductRecords
+                WHERE record_type = 'approval' AND record_id = @id
+                """,
+                params={"id": request_id},
+                param_types={"id": spanner.param_types.STRING},
+            )
+            approval_row = next(iter(approval_rows), None)
+            if approval_row is None:
+                transaction.insert(
+                    "Approvals",
+                    [
+                        "id",
+                        "source_item_id",
+                        "action",
+                        "arguments",
+                        "status",
+                        "created_at",
+                        "resolved_at",
+                    ],
+                    [[
+                        approval.id,
+                        approval.source_item_id,
+                        approval.action,
+                        json.dumps(approval.arguments, sort_keys=True),
+                        approval.status.value,
+                        approval.created_at.isoformat(),
+                        None,
+                    ]],
+                )
+                transaction.insert(
+                    "ProductRecords",
+                    [
+                        "record_type",
+                        "record_id",
+                        "source_item_id",
+                        "status",
+                        "payload",
+                        "created_at",
+                        "updated_at",
+                    ],
+                    [[
+                        "approval",
+                        approval.id,
+                        approval.source_item_id,
+                        approval.status.value,
+                        approval.model_dump_json(),
+                        approval.created_at,
+                        now,
+                    ]],
+                )
+                stored_approval = approval
+            else:
+                stored_approval = Approval.model_validate_json(
+                    _json_text(approval_row[0])
+                )
+
+            deferred = request.model_copy(
+                update={
+                    "status": ToolStatus.DEFERRED,
+                    "failure_reason": None,
+                    "completed_at": None,
+                }
+            )
+            transaction.update(
+                "ProductRecords",
+                ["record_type", "record_id", "status", "payload", "updated_at"],
+                [[
+                    "tool_request",
+                    request_id,
+                    ToolStatus.DEFERRED.value,
+                    deferred.model_dump_json(),
+                    now,
+                ]],
+            )
+            return deferred.model_dump_json(), stored_approval.model_dump_json()
+
+        result = await asyncio.to_thread(self.database.run_in_transaction, defer)
+        if result is None:
+            return None
+        return (
+            ToolRequest.model_validate_json(result[0]),
+            Approval.model_validate_json(result[1]),
+        )
+
     async def store_source_run(self, run: SourceRun) -> SourceRun:
         await self._put_record(
             "source_run",
@@ -1569,32 +1759,43 @@ class SpannerRepository:
         status: ProcessingStatus,
         failure_reason: str | None = None,
     ) -> SourceItem | None:
-        item = await self.get_source_item(source_item_id)
-        if item is None:
-            return None
-        terminal = status in {
-            ProcessingStatus.COMPLETED,
-            ProcessingStatus.BLOCKED,
-            ProcessingStatus.FAILED,
-            ProcessingStatus.PENDING,
-        }
-        updated = item.model_copy(
-            update={
-                "processing_status": status,
-                "processing_owner": None if terminal else item.processing_owner,
-                "processing_started_at": (
-                    None if terminal else item.processing_started_at
-                ),
-                "failure_reason": failure_reason,
+        def update(transaction: spanner.Transaction) -> str | None:
+            rows = transaction.execute_sql(
+                "SELECT payload FROM SourceItems WHERE id = @id",
+                params={"id": source_item_id},
+                param_types={"id": spanner.param_types.STRING},
+            )
+            row = next(iter(rows), None)
+            if row is None:
+                return None
+            item = SourceItem.model_validate_json(_json_text(row[0]))
+            terminal = status in {
+                ProcessingStatus.COMPLETED,
+                ProcessingStatus.BLOCKED,
+                ProcessingStatus.FAILED,
+                ProcessingStatus.PENDING,
             }
-        )
-        await self._mutation(
-            "update",
-            "SourceItems",
-            ["id", "payload", "created_at"],
-            [[source_item_id, updated.model_dump_json(), updated.received_at.isoformat()]],
-        )
-        return updated
+            updated = item.model_copy(
+                update={
+                    "processing_status": status,
+                    "processing_owner": (
+                        None if terminal else item.processing_owner
+                    ),
+                    "processing_started_at": (
+                        None if terminal else item.processing_started_at
+                    ),
+                    "failure_reason": failure_reason,
+                }
+            )
+            transaction.update(
+                "SourceItems",
+                ["id", "payload"],
+                [[source_item_id, updated.model_dump_json()]],
+            )
+            return updated.model_dump_json()
+
+        payload = await asyncio.to_thread(self.database.run_in_transaction, update)
+        return SourceItem.model_validate_json(payload) if payload else None
 
     async def list_pending_source_items(self, limit: int = 50) -> list[SourceItem]:
         safe_limit = min(max(limit, 1), 200)

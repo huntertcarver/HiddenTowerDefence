@@ -59,10 +59,9 @@ class ToolDispatcher:
         )
         if not created:
             if request.status == ToolStatus.DEFERRED:
-                await self._ensure_approval(
+                return await self._defer_with_approval(
                     request, await self._repository.is_tainted(source_item_id)
                 )
-                return request
             if request.status in {
                 ToolStatus.COMPLETED,
                 ToolStatus.BLOCKED,
@@ -110,26 +109,19 @@ class ToolDispatcher:
         if effective_state == TrustState.RESTRICTED and not can_execute_tool(
             effective_state, name
         ):
-            deferred = await self._repository.update_tool_request(
-                request.id, ToolStatus.DEFERRED
-            )
-            if deferred is None or deferred.status != ToolStatus.DEFERRED:
-                return await self._repository.get_tool_request(request.id) or request
-            await self._ensure_approval(deferred, tainted)
-            return deferred
+            return await self._defer_with_approval(request, tainted)
         return await self._execute(
             request,
             expected_status=ToolStatus.REQUESTED,
             result_scan_override=result_scan_override,
         )
 
-    async def _ensure_approval(
+    async def _defer_with_approval(
         self, request: ToolRequest, tainted: bool
-    ) -> Approval:
+    ) -> ToolRequest:
         existing = await self._repository.get_approval_for_tool_request(request.id)
-        if existing is not None:
-            return existing
-        approval = await self._repository.create_approval(
+        result = await self._repository.defer_tool_request_with_approval(
+            request.id,
             Approval(
                 id=request.id,
                 source_item_id=request.source_item_id,
@@ -137,8 +129,13 @@ class ToolDispatcher:
                 arguments=request.arguments,
                 idempotency_key=request.idempotency_key,
                 tool_request_id=request.id,
-            )
+            ),
         )
+        if result is None:
+            return await self._repository.get_tool_request(request.id) or request
+        deferred, approval = result
+        if existing is not None:
+            return deferred
         await self._events.publish(
             TowerEvent(
                 type=EventType.APPROVAL_CREATED,
@@ -153,7 +150,7 @@ class ToolDispatcher:
                 },
             )
         )
-        return approval
+        return deferred
 
     async def approve(self, approval_id: str) -> Approval | None:
         approval = await self._repository.claim_approval_execution(approval_id)
@@ -292,16 +289,18 @@ class ToolDispatcher:
                 },
             )
             return completed or request
-        except (TypeError, ValueError) as error:
+        except Exception as error:
             failed = await self._repository.update_tool_request(
                 request.id,
                 ToolStatus.FAILED,
-                failure_reason=f"{type(error).__name__}: invalid controlled tool request",
+                failure_reason=(
+                    f"{type(error).__name__}: controlled tool execution failed"
+                ),
             )
             await self._emit(
                 EventType.TOOL_BLOCKED,
                 request,
-                {"tool_request_id": request.id, "reason": "invalid_arguments"},
+                {"tool_request_id": request.id, "reason": "execution_failed"},
             )
             return failed or request
 

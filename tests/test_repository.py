@@ -14,6 +14,8 @@ from app.models import (
     IncidentStatus,
     MockAlert,
     ProcessingStatus,
+    ScanBoundary,
+    ScanRecord,
     SourceItem,
     TaintRecord,
     ToolRequest,
@@ -21,6 +23,7 @@ from app.models import (
     TrustState,
     Watchlist,
 )
+from app.orchestrator import Orchestrator
 from app.repositories import SQLiteRepository
 
 
@@ -247,6 +250,46 @@ async def test_demo_recovery_resumes_when_only_demo_risk_remains(tmp_path: Path)
         assert not await repository.has_active_taints()
         assert await repository.list_incidents(active_only=True) == []
         assert await repository.get_trust_state() == TrustState.NORMAL
+    finally:
+        await repository.close()
+
+
+async def test_replayed_lock_reuses_existing_incident(tmp_path: Path) -> None:
+    repository = SQLiteRepository(tmp_path / "tower.db")
+    await repository.connect()
+    try:
+        item = SourceItem(id="hn:replayed-lock", title="Locked")
+        await repository.store_source_item(item)
+        events = EventHub(repository)
+        orchestrator = Orchestrator(
+            Settings(environment="test", data_dir=tmp_path),
+            repository,
+            events,
+            object(),  # type: ignore[arg-type]
+            object(),  # type: ignore[arg-type]
+            object(),  # type: ignore[arg-type]
+            object(),  # type: ignore[arg-type]
+        )
+        scan = ScanRecord(
+            source_item_id=item.id,
+            boundary=ScanBoundary.INGEST,
+            detected=True,
+            threat_level="High",
+            action="Block",
+        )
+
+        await orchestrator._lock_item(item.id, scan, "during first attempt")
+        await orchestrator._lock_item(item.id, scan, "during recovery")
+
+        incidents = await repository.list_incidents(active_only=True)
+        assert len(incidents) == 1
+        assert incidents[0].source_item_id == item.id
+        incident_events = [
+            event
+            for event in await repository.list_events(limit=100)
+            if event.type == EventType.INCIDENT_CREATED
+        ]
+        assert len(incident_events) == 1
     finally:
         await repository.close()
 
