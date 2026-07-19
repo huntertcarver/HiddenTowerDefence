@@ -1,0 +1,1 @@
+"""Persisted source ingestion services."""
