@@ -56,13 +56,19 @@ class ToolDispatcher:
                 idempotency_key=idempotency_key,
             )
         )
-        if not created:
+        if not created and request.status in {
+            ToolStatus.COMPLETED,
+            ToolStatus.BLOCKED,
+            ToolStatus.DEFERRED,
+            ToolStatus.DENIED,
+        }:
             return request
-        await self._emit(
-            EventType.TOOL_REQUESTED,
-            request,
-            {"tool_request_id": request.id, "name": name},
-        )
+        if created:
+            await self._emit(
+                EventType.TOOL_REQUESTED,
+                request,
+                {"tool_request_id": request.id, "name": name},
+            )
 
         argument_scan = await self._scanner.scan(
             ScanBoundary.TOOL_ARGUMENTS,
