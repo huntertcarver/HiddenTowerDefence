@@ -79,9 +79,29 @@ export interface Evidence {
     title: string;
     text: string;
     comments: string[];
+    url?: string | null;
+    author?: string | null;
+    score?: number | null;
+    comment_count?: number | null;
+    processing_status: string;
     source: string;
     simulated: boolean;
   };
   scans: ScanSummary[];
+  triage: {
+    summary: string;
+    category: string;
+    priority: string;
+    sentiment: string;
+    topics: string[];
+    recommended_action: string;
+    rationale: string;
+  } | null;
+  decision: {
+    status: string;
+    summary: string;
+    latest_action: string;
+    latest_threat_level: string;
+  };
   scope: string;
 }

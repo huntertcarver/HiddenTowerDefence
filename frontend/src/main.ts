@@ -130,7 +130,43 @@ function prependConsoleEvent(event: TowerEvent): void {
 
 function renderEntityDetails(entityId: string): void {
   const history = eventsByEntity.get(entityId) ?? [];
-  detailPanel.innerHTML = `<h3>${escapeText(entityId)}</h3>`;
+  detailPanel.innerHTML = `<h3>Loading source details…</h3>`;
+  evidenceFor(entityId)
+    .then((evidence) => {
+      const triage = evidence.triage;
+      const sourceLink = evidence.source.url
+        ? `<a href="${escapeText(evidence.source.url)}" target="_blank" rel="noopener">Open source article ↗</a>`
+        : "";
+      const comments = evidence.source.comments
+        .slice(0, 2)
+        .map((comment) => `<li>${escapeText(comment.slice(0, 240))}</li>`)
+        .join("");
+      detailPanel.innerHTML = `
+        <h3>${escapeText(evidence.source.title)}</h3>
+        <p class="decision-summary">${escapeText(evidence.decision.summary)}</p>
+        <dl class="classification-grid">
+          <dt>Decision</dt><dd>${escapeText(evidence.decision.latest_action)}</dd>
+          <dt>Threat</dt><dd>${escapeText(evidence.decision.latest_threat_level)}</dd>
+          <dt>Category</dt><dd>${escapeText(triage?.category ?? "Not classified")}</dd>
+          <dt>Priority</dt><dd>${escapeText(triage?.priority ?? "Pending")}</dd>
+          <dt>Sentiment</dt><dd>${escapeText(triage?.sentiment ?? "Pending")}</dd>
+          <dt>Action</dt><dd>${escapeText(triage?.recommended_action ?? "Pending")}</dd>
+        </dl>
+        ${sourceLink}
+        <p>${escapeText((triage?.summary || evidence.source.text || "No excerpt available").slice(0, 500))}</p>
+        ${triage?.rationale ? `<p><strong>Why:</strong> ${escapeText(triage.rationale)}</p>` : ""}
+        ${comments ? `<h4>Source comments</h4><ul>${comments}</ul>` : ""}
+        <h4>Processing history</h4>
+      `;
+      appendEventHistory(history);
+    })
+    .catch(() => {
+      detailPanel.innerHTML = `<h3>${escapeText(entityId)}</h3><p>Source details are unavailable.</p><h4>Processing history</h4>`;
+      appendEventHistory(history);
+    });
+}
+
+function appendEventHistory(history: TowerEvent[]): void {
   if (!history.length) {
     detailPanel.insertAdjacentHTML("beforeend", "<p>No recent event history.</p>");
     return;
@@ -191,6 +227,24 @@ function renderIncidentControls(snapshot: SceneSnapshot): void {
     stopDemo.textContent = "Stop demo";
     stopDemo.addEventListener("click", () => operatorMutation("/api/demo/stop"));
     incidentPanel.append(stopDemo);
+  }
+  if (snapshot.incidents.length || snapshot.trust_state !== "NORMAL") {
+    const resetAll = document.createElement("button");
+    resetAll.className = "danger";
+    resetAll.textContent = "Clear all & restart demo";
+    resetAll.addEventListener("click", () => {
+      if (
+        window.confirm(
+          "Resolve all incidents and taints, return to NORMAL, and restart the demo?",
+        )
+      ) {
+        void operatorMutation("/api/incidents/resolve-all", {
+          resolution: "Bulk operator reset from the game UI",
+          restart_demo: true,
+        });
+      }
+    });
+    incidentPanel.append(resetAll);
   }
   for (const incident of snapshot.incidents) {
     const card = document.createElement("article");

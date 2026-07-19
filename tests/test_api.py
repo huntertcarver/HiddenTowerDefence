@@ -86,6 +86,10 @@ def test_restricted_approval_executes_once(monkeypatch, tmp_path: Path) -> None:
             f"/api/evidence/{approvals[0]['source_item_id']}"
         ).json()
         assert evidence["source"]["processing_status"] == "completed"
+        assert evidence["decision"]["summary"].startswith("Admitted")
+        assert evidence["decision"]["latest_action"] == "Allow"
+        assert evidence["triage"]["category"] == "developer-community"
+        assert evidence["triage"]["summary"]
 
 
 def test_csrf_and_session_tampering_are_rejected(monkeypatch, tmp_path: Path) -> None:
@@ -167,6 +171,38 @@ def test_malicious_tool_result_is_blocked(monkeypatch, tmp_path: Path) -> None:
         )
         evidence = client.get(f"/api/evidence/{source_id}").json()
         assert evidence["source"]["processing_status"] == "blocked"
+
+
+def test_operator_can_clear_all_incidents_and_reset_demo(
+    monkeypatch, tmp_path: Path
+) -> None:
+    configure_test_environment(monkeypatch, tmp_path)
+    with TestClient(app) as client:
+        headers = operator_headers(client)
+        for _ in range(2):
+            response = client.post(
+                "/api/demo/fixtures/locked-exfiltration/inject",
+                headers=headers,
+            )
+            assert response.status_code == 200
+        assert len(client.get("/api/scene").json()["incidents"]) == 2
+
+        response = client.post(
+            "/api/incidents/resolve-all",
+            headers=headers,
+            json={
+                "resolution": "Bulk reset for test",
+                "restart_demo": False,
+            },
+        )
+
+        assert response.status_code == 200
+        assert response.json()["incidents_resolved"] == 2
+        assert response.json()["trust_state"] == "NORMAL"
+        assert response.json()["demo_running"] is False
+        scene = client.get("/api/scene").json()
+        assert scene["incidents"] == []
+        assert scene["trust_state"] == "NORMAL"
 
 
 def test_websocket_replay_resumes_after_cursor_without_duplicates(

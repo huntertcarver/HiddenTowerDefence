@@ -71,6 +71,10 @@ class Repository(Protocol):
 
     async def record_next_source_dispatch_at(self, occurred_at: datetime) -> None: ...
 
+    async def resolve_all_taints(self, resolution: str) -> int: ...
+
+    async def get_triage(self, source_item_id: str) -> TriageResult | None: ...
+
     async def append_event(self, event: TowerEvent) -> TowerEvent: ...
 
     async def list_events(self, after_id: int = 0, limit: int = 200) -> list[TowerEvent]: ...
@@ -411,6 +415,35 @@ class SQLiteRepository:
             "SELECT 1 FROM taints WHERE active = 1 LIMIT 1"
         )
         return await cursor.fetchone() is not None
+
+    async def resolve_all_taints(self, resolution: str) -> int:
+        now = datetime.now(UTC)
+        async with self.transaction():
+            rows = await (
+                await self.connection.execute(
+                    "SELECT source_item_id, payload FROM taints WHERE active = 1"
+                )
+            ).fetchall()
+            for row in rows:
+                taint = TaintRecord.model_validate_json(row["payload"]).model_copy(
+                    update={
+                        "active": False,
+                        "resolved_at": now,
+                        "resolution": resolution,
+                    }
+                )
+                await self.connection.execute(
+                    """
+                    UPDATE taints SET active = 0, payload = ?, resolved_at = ?
+                    WHERE source_item_id = ?
+                    """,
+                    (
+                        taint.model_dump_json(),
+                        now.isoformat(),
+                        row["source_item_id"],
+                    ),
+                )
+            return len(rows)
 
     async def acquire_lease(self, name: str, owner_id: str, ttl_seconds: int) -> bool:
         now = datetime.now(UTC)
@@ -983,6 +1016,15 @@ class SQLiteRepository:
             (row["source_item_id"], TriageResult.model_validate_json(row["payload"]))
             for row in await cursor.fetchall()
         ]
+
+    async def get_triage(self, source_item_id: str) -> TriageResult | None:
+        row = await (
+            await self.connection.execute(
+                "SELECT payload FROM triage_results WHERE source_item_id = ?",
+                (source_item_id,),
+            )
+        ).fetchone()
+        return TriageResult.model_validate_json(row["payload"]) if row else None
 
     async def list_triage_with_sources(
         self, limit: int = 200
@@ -2000,6 +2042,15 @@ class SpannerRepository:
     async def has_active_taints(self) -> bool:
         return bool(await self._list_records("taint", status="active", limit=1))
 
+    async def resolve_all_taints(self, resolution: str) -> int:
+        payloads = await self._list_records("taint", status="active", limit=500)
+        resolved = 0
+        for payload in payloads:
+            taint = TaintRecord.model_validate_json(payload)
+            if await self.resolve_taint(taint.source_item_id, resolution):
+                resolved += 1
+        return resolved
+
     async def acquire_lease(self, name: str, owner_id: str, ttl_seconds: int) -> bool:
         now = datetime.now(UTC)
         expires_at = now + timedelta(seconds=max(ttl_seconds, 1))
@@ -2402,6 +2453,17 @@ class SpannerRepository:
                 ]
 
         return await asyncio.to_thread(read)
+
+    async def get_triage(self, source_item_id: str) -> TriageResult | None:
+        row = await self._read_one(
+            "SELECT payload FROM TriageResults WHERE source_item_id = @id",
+            {"id": source_item_id},
+        )
+        return (
+            TriageResult.model_validate_json(_json_text(row[0]))
+            if row
+            else None
+        )
 
     async def list_triage_with_sources(
         self, limit: int = 200
