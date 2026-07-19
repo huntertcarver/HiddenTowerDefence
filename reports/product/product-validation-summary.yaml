@@ -1,6 +1,6 @@
 status: passed
-validated_at: "2026-07-19T13:10:51Z"
-commit_under_test: "platform integration tree after 72be41f"
+validated_at: "2026-07-19T14:12:21Z"
+commit_under_test: "6662ef5"
 
 integration:
   platform_base_commit: "75f486973decdc8df55f1849ef88f3dd2c0c8b41"
@@ -11,6 +11,15 @@ integration:
     terraform: passed
   state_bucket_iam_bootstrap: passed
   production_workflow: "pending merge; main-branch WIF execution not yet triggered"
+  review_remediation:
+    demo_isolation: passed
+    durable_apify_cadence: passed
+    atomic_source_claims: passed
+    tool_execution_claims: passed
+    deterministic_tool_side_effects: passed
+    atomic_tool_deferral: passed
+    incident_deduplication: passed
+    empty_spanner_history_baseline: passed
 
 scope:
   product_backend: passed
@@ -34,7 +43,7 @@ tests:
       SPANNER_DATABASE_ID=hiddentowerdefence
       pytest -q
     result: passed
-    passed: 23
+    passed: 40
     skipped: 1
     skipped_reason: "bounded paid-provider suite is opt-in"
   compileall:
@@ -68,6 +77,11 @@ tests:
       - trust transition and taint
       - approval exactly-once claim
       - approval finalization
+      - durable Apify success timestamp
+      - expiring source processing claim
+      - tool execution compare-and-set
+      - transactional tool deferral and approval
+      - transactional source status update
   terraform:
     command: >-
       terraform fmt -check -recursive &&
@@ -98,13 +112,14 @@ migrations:
   sqlite_repeated_noop: passed
   spanner_first_deploy_emulator: passed
   spanner_repeated_noop: passed
+  spanner_empty_history_baseline: passed
   checksum_mismatch_test: passed
   out_of_order_test: passed
 
 container:
-  command: "docker build -t hiddentowerdefence:platform-integrated ."
+  command: "docker build -t hiddentowerdefence:review-fixed-final ."
   result: passed
-  image_id: "sha256:ea7e8937ae560ab85969b808bb52cf472d462d15b3ca7dc2e76488f1318a0a55"
+  image_id: "sha256:fd984eef8474da50c63c9408294b476caac59b6e59d89f7b56e3ebfec38a6902"
   runtime_user: non_root
   smoke:
     root: 200
