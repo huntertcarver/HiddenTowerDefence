@@ -2,6 +2,15 @@ status: passed
 validated_at: "2026-07-19T12:54:00Z"
 commit_under_test: "platform integration tree after 72be41f"
 
+integration:
+  platform_base_commit: "75f486973decdc8df55f1849ef88f3dd2c0c8b41"
+  product_rebased: true
+  pull_request: "https://github.com/huntertcarver/HiddenTowerDefence/pull/3"
+  pull_request_ci:
+    validate: passed
+    terraform: passed
+  production_workflow: "pending merge and one-time state-bucket IAM bootstrap"
+
 scope:
   product_backend: passed
   security_boundaries: passed
