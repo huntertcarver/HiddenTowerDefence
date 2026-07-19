@@ -104,6 +104,8 @@ class SourceItem(BaseModel):
     simulated: bool = False
     run_id: str | None = None
     processing_status: ProcessingStatus = ProcessingStatus.PENDING
+    processing_owner: str | None = None
+    processing_started_at: datetime | None = None
     failure_reason: str | None = None
 
 

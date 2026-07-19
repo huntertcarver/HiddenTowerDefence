@@ -35,6 +35,7 @@ class Settings(BaseSettings):
     source_comment_limit: int = Field(default=2000, ge=100, le=10000)
     heartbeat_interval_seconds: int = Field(default=15, ge=5)
     heartbeat_lease_seconds: int = Field(default=45, ge=15)
+    source_processing_lease_seconds: int = Field(default=300, ge=30, le=3600)
 
     hiddenlayer_client_id: SecretStr | None = Field(
         default=None,

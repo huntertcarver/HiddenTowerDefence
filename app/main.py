@@ -131,6 +131,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 payload={"lease_owner": lease_owner[:8]},
             )
         )
+        for pending_item in await repository.list_pending_source_items(limit=50):
+            await orchestrator.process(pending_item)
         if settings.environment == "test":
             return
         if settings.apify_api_token is None:

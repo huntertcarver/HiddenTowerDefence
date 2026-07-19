@@ -51,6 +51,14 @@ class Repository(Protocol):
 
     async def get_source_item(self, source_item_id: str) -> SourceItem | None: ...
 
+    async def claim_source_item(
+        self,
+        source_item_id: str,
+        owner_id: str,
+        lease_seconds: int,
+        now: datetime | None = None,
+    ) -> SourceItem | None: ...
+
     async def get_trust_state(self) -> TrustState: ...
 
     async def set_trust_state(self, state: TrustState) -> None: ...
@@ -129,6 +137,48 @@ class SQLiteRepository:
         row = await cursor.fetchone()
         return SourceItem.model_validate_json(row["payload"]) if row else None
 
+    async def claim_source_item(
+        self,
+        source_item_id: str,
+        owner_id: str,
+        lease_seconds: int,
+        now: datetime | None = None,
+    ) -> SourceItem | None:
+        claimed_at = (now or datetime.now(UTC)).astimezone(UTC)
+        stale_before = claimed_at - timedelta(seconds=max(lease_seconds, 1))
+        async with self.transaction():
+            row = await (
+                await self.connection.execute(
+                    "SELECT payload FROM source_items WHERE id = ?", (source_item_id,)
+                )
+            ).fetchone()
+            if row is None:
+                return None
+            item = SourceItem.model_validate_json(row["payload"])
+            pending = item.processing_status == ProcessingStatus.PENDING
+            stale = (
+                item.processing_status == ProcessingStatus.PROCESSING
+                and (
+                    item.processing_started_at is None
+                    or item.processing_started_at <= stale_before
+                )
+            )
+            if not pending and not stale:
+                return None
+            claimed = item.model_copy(
+                update={
+                    "processing_status": ProcessingStatus.PROCESSING,
+                    "processing_owner": owner_id,
+                    "processing_started_at": claimed_at,
+                    "failure_reason": None,
+                }
+            )
+            await self.connection.execute(
+                "UPDATE source_items SET payload = ? WHERE id = ?",
+                (claimed.model_dump_json(), source_item_id),
+            )
+            return claimed
+
     async def update_source_status(
         self,
         source_item_id: str,
@@ -143,8 +193,21 @@ class SQLiteRepository:
             if row is None:
                 return None
             item = SourceItem.model_validate_json(row["payload"])
+            terminal = status in {
+                ProcessingStatus.COMPLETED,
+                ProcessingStatus.BLOCKED,
+                ProcessingStatus.FAILED,
+                ProcessingStatus.PENDING,
+            }
             updated = item.model_copy(
-                update={"processing_status": status, "failure_reason": failure_reason}
+                update={
+                    "processing_status": status,
+                    "processing_owner": None if terminal else item.processing_owner,
+                    "processing_started_at": (
+                        None if terminal else item.processing_started_at
+                    ),
+                    "failure_reason": failure_reason,
+                }
             )
             await self.connection.execute(
                 "UPDATE source_items SET payload = ? WHERE id = ?",
@@ -1365,6 +1428,54 @@ class SpannerRepository:
         )
         return SourceItem.model_validate_json(_json_text(row[0])) if row else None
 
+    async def claim_source_item(
+        self,
+        source_item_id: str,
+        owner_id: str,
+        lease_seconds: int,
+        now: datetime | None = None,
+    ) -> SourceItem | None:
+        claimed_at = (now or datetime.now(UTC)).astimezone(UTC)
+        stale_before = claimed_at - timedelta(seconds=max(lease_seconds, 1))
+
+        def claim(transaction: spanner.Transaction) -> str | None:
+            rows = transaction.execute_sql(
+                "SELECT payload FROM SourceItems WHERE id = @id",
+                params={"id": source_item_id},
+                param_types={"id": spanner.param_types.STRING},
+            )
+            row = next(iter(rows), None)
+            if row is None:
+                return None
+            item = SourceItem.model_validate_json(_json_text(row[0]))
+            pending = item.processing_status == ProcessingStatus.PENDING
+            stale = (
+                item.processing_status == ProcessingStatus.PROCESSING
+                and (
+                    item.processing_started_at is None
+                    or item.processing_started_at <= stale_before
+                )
+            )
+            if not pending and not stale:
+                return None
+            claimed = item.model_copy(
+                update={
+                    "processing_status": ProcessingStatus.PROCESSING,
+                    "processing_owner": owner_id,
+                    "processing_started_at": claimed_at,
+                    "failure_reason": None,
+                }
+            )
+            transaction.update(
+                "SourceItems",
+                ["id", "payload"],
+                [[source_item_id, claimed.model_dump_json()]],
+            )
+            return claimed.model_dump_json()
+
+        payload = await asyncio.to_thread(self.database.run_in_transaction, claim)
+        return SourceItem.model_validate_json(payload) if payload else None
+
     async def update_source_status(
         self,
         source_item_id: str,
@@ -1374,8 +1485,21 @@ class SpannerRepository:
         item = await self.get_source_item(source_item_id)
         if item is None:
             return None
+        terminal = status in {
+            ProcessingStatus.COMPLETED,
+            ProcessingStatus.BLOCKED,
+            ProcessingStatus.FAILED,
+            ProcessingStatus.PENDING,
+        }
         updated = item.model_copy(
-            update={"processing_status": status, "failure_reason": failure_reason}
+            update={
+                "processing_status": status,
+                "processing_owner": None if terminal else item.processing_owner,
+                "processing_started_at": (
+                    None if terminal else item.processing_started_at
+                ),
+                "failure_reason": failure_reason,
+            }
         )
         await self._mutation(
             "update",

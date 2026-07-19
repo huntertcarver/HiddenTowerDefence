@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from uuid import uuid4
+
 from app.agent.dispatcher import ToolDispatcher
 from app.clients.nemotron import NemotronClient
 from app.config import Settings
@@ -32,6 +34,7 @@ class Orchestrator:
         nemotron: NemotronClient,
         dispatcher: ToolDispatcher,
         intelligence: IntelligenceService,
+        worker_id: str | None = None,
     ) -> None:
         self._settings = settings
         self._repository = repository
@@ -40,6 +43,7 @@ class Orchestrator:
         self._nemotron = nemotron
         self._dispatcher = dispatcher
         self._intelligence = intelligence
+        self._worker_id = worker_id or uuid4().hex
 
     async def process(
         self,
@@ -51,12 +55,14 @@ class Orchestrator:
         tool_result_override: ScanResult | None = None,
     ) -> bool:
         inserted = await self._repository.store_source_item(item)
-        if not inserted:
-            existing = await self._repository.get_source_item(item.id)
-            if existing is None or existing.processing_status != ProcessingStatus.PENDING:
-                return False
-            item = existing
-        await self._repository.update_source_status(item.id, ProcessingStatus.PROCESSING)
+        claimed = await self._repository.claim_source_item(
+            item.id,
+            self._worker_id,
+            self._settings.source_processing_lease_seconds,
+        )
+        if claimed is None:
+            return False
+        item = claimed
         if inserted:
             await self._emit(
                 EventType.CONTENT_RECEIVED,

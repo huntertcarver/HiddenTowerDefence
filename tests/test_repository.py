@@ -1,3 +1,5 @@
+import asyncio
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from app.config import Settings
@@ -122,6 +124,43 @@ async def test_repository_persists_security_and_product_state(tmp_path: Path) ->
         updated_alert = await repository.update_mock_alert_state(alert.id, read=True)
         assert updated_alert is not None
         assert updated_alert.read
+    finally:
+        await repository.close()
+
+
+async def test_source_processing_claim_is_atomic_and_expiring(tmp_path: Path) -> None:
+    repository = SQLiteRepository(tmp_path / "tower.db")
+    await repository.connect()
+    try:
+        item = SourceItem(id="hn:claim", title="Claim")
+        await repository.store_source_item(item)
+        now = datetime(2026, 7, 19, 12, tzinfo=UTC)
+        first, second = await asyncio.gather(
+            repository.claim_source_item(item.id, "worker-a", 300, now),
+            repository.claim_source_item(item.id, "worker-b", 300, now),
+        )
+        winners = [claim for claim in (first, second) if claim is not None]
+        assert len(winners) == 1
+        assert winners[0].processing_owner in {"worker-a", "worker-b"}
+
+        assert (
+            await repository.claim_source_item(
+                item.id, "worker-c", 300, now + timedelta(seconds=299)
+            )
+            is None
+        )
+        reclaimed = await repository.claim_source_item(
+            item.id, "worker-c", 300, now + timedelta(seconds=301)
+        )
+        assert reclaimed is not None
+        assert reclaimed.processing_owner == "worker-c"
+
+        completed = await repository.update_source_status(
+            item.id, ProcessingStatus.COMPLETED
+        )
+        assert completed is not None
+        assert completed.processing_owner is None
+        assert completed.processing_started_at is None
     finally:
         await repository.close()
 
