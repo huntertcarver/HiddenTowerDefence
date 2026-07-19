@@ -1,6 +1,19 @@
 from pathlib import Path
 
-from app.models import Approval, ApprovalStatus, EventType, SourceItem, TowerEvent, TrustState
+from app.models import (
+    Approval,
+    ApprovalStatus,
+    EventType,
+    Incident,
+    IncidentStatus,
+    ProcessingStatus,
+    SourceItem,
+    TaintRecord,
+    ToolRequest,
+    TowerEvent,
+    TrustState,
+    Watchlist,
+)
 from app.repositories import SQLiteRepository
 
 
@@ -29,5 +42,90 @@ async def test_repository_persists_events_and_approvals(tmp_path: Path) -> None:
         assert resolved is not None
         assert resolved.status == ApprovalStatus.APPROVED
         assert await repository.list_approvals() == []
+    finally:
+        await repository.close()
+
+
+async def test_repository_persists_security_and_product_state(tmp_path: Path) -> None:
+    repository = SQLiteRepository(tmp_path / "tower.db")
+    await repository.connect()
+    try:
+        item = SourceItem(id="hn:security", title="Security story")
+        assert await repository.store_source_item(item)
+        updated = await repository.update_source_status(item.id, ProcessingStatus.PROCESSING)
+        assert updated is not None
+        assert updated.processing_status == ProcessingStatus.PROCESSING
+
+        taint = await repository.create_taint(
+            TaintRecord(source_item_id=item.id, reason="prompt injection")
+        )
+        assert taint.active
+        assert await repository.is_tainted(item.id)
+
+        transition = await repository.transition_trust_state(
+            TrustState.LOCKED, "high finding", item.id
+        )
+        assert transition is not None
+        assert transition.from_state == TrustState.NORMAL
+        assert transition.to_state == TrustState.LOCKED
+        assert (
+            await repository.transition_trust_state(TrustState.NORMAL, "clean", item.id)
+            is None
+        )
+
+        incident = await repository.create_incident(
+            Incident(source_item_id=item.id, severity="High", summary="Blocked")
+        )
+        acknowledged = await repository.acknowledge_incident(incident.id)
+        assert acknowledged is not None
+        assert acknowledged.status == IncidentStatus.ACKNOWLEDGED
+        resolved = await repository.resolve_incident(incident.id, "operator resolution")
+        assert resolved is not None
+        assert resolved.status == IncidentStatus.RESOLVED
+        assert not await repository.is_tainted(item.id)
+
+        request = ToolRequest(
+            source_item_id=item.id,
+            name="save_brief",
+            arguments={"summary": "Safe"},
+            idempotency_key="brief:security",
+        )
+        created, was_created = await repository.create_tool_request(request)
+        assert was_created
+        duplicate, was_created = await repository.create_tool_request(request)
+        assert not was_created
+        assert duplicate.id == created.id
+
+        watchlist = await repository.upsert_watchlist(
+            Watchlist(name="Agent security", search_terms=["prompt injection"])
+        )
+        assert [saved.id for saved in await repository.list_watchlists()] == [watchlist.id]
+        assert await repository.delete_watchlist(watchlist.id)
+    finally:
+        await repository.close()
+
+
+async def test_approval_claim_is_exactly_once(tmp_path: Path) -> None:
+    repository = SQLiteRepository(tmp_path / "tower.db")
+    await repository.connect()
+    try:
+        item = SourceItem(id="hn:approval", title="Approval")
+        await repository.store_source_item(item)
+        approval = await repository.create_approval(
+            Approval(
+                source_item_id=item.id,
+                action="save_brief",
+                idempotency_key="approval:1",
+            )
+        )
+        claimed = await repository.claim_approval_execution(approval.id)
+        assert claimed is not None
+        assert claimed.status == ApprovalStatus.EXECUTING
+        assert await repository.claim_approval_execution(approval.id) is None
+        finalized = await repository.finalize_approval(
+            approval.id, ApprovalStatus.APPROVED
+        )
+        assert finalized is not None
+        assert finalized.status == ApprovalStatus.APPROVED
     finally:
         await repository.close()
