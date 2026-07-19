@@ -1,0 +1,31 @@
+name: Monitor domain readiness
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 * * * *"
+
+permissions:
+  contents: read
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check authoritative delegation and HTTPS
+        env:
+          DOMAIN: hiddentowerdefence.com
+          EXPECTED_NAMESERVERS: ${{ vars.CLOUD_DNS_NAMESERVERS }}
+        run: |
+          set -eu
+          ACTUAL="$(dig +short NS "$DOMAIN" | sort | tr '\n' ' ')"
+          echo "Observed authoritative nameservers: $ACTUAL"
+          if [ -n "$EXPECTED_NAMESERVERS" ]; then
+            for NS in $EXPECTED_NAMESERVERS; do
+              case "$ACTUAL" in *"$NS"*) ;; *) echo "Delegation pending for $NS"; exit 0;; esac
+            done
+          else
+            echo "CLOUD_DNS_NAMESERVERS is not set yet; delegation has not been requested."
+            exit 0
+          fi
+          curl --fail --max-time 20 --retry 3 "https://$DOMAIN/health"
