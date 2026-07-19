@@ -156,8 +156,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         "demo": demo,
         "auth": auth,
     }
-    for pending_item in await repository.list_pending_source_items(limit=50):
-        await orchestrator.process(pending_item)
+    if await repository.acquire_lease(
+        "pending_replay", lease_owner, settings.heartbeat_lease_seconds
+    ):
+        for pending_item in await repository.list_pending_source_items(limit=50):
+            await orchestrator.process(pending_item)
     await heartbeat.start()
     try:
         yield
