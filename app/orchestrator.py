@@ -53,10 +53,7 @@ class Orchestrator:
         inserted = await self._repository.store_source_item(item)
         if not inserted:
             existing = await self._repository.get_source_item(item.id)
-            if existing is None or existing.processing_status not in {
-                ProcessingStatus.PENDING,
-                ProcessingStatus.PROCESSING,
-            }:
+            if existing is None or existing.processing_status != ProcessingStatus.PENDING:
                 return False
             item = existing
         await self._repository.update_source_status(item.id, ProcessingStatus.PROCESSING)
