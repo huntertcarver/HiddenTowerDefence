@@ -1,0 +1,28 @@
+status: ready_for_delegation
+domain: hiddentowerdefence.com
+registrar: Porkbun
+old_authoritative_nameservers:
+  - curitiba.porkbun.com
+  - fortaleza.porkbun.com
+  - maceio.porkbun.com
+  - salvador.porkbun.com
+new_cloud_dns_nameservers:
+  - ns-cloud-b1.googledomains.com
+  - ns-cloud-b2.googledomains.com
+  - ns-cloud-b3.googledomains.com
+  - ns-cloud-b4.googledomains.com
+edge:
+  ip_address: 34.49.195.86
+  https_health_path: /health
+  direct_ip_https_status: 200
+certificate:
+  state: ACTIVE
+  authorization: AUTHORIZED
+record_parity:
+  apex_a: present
+  mx: present
+  spf_txt: present
+  wildcard_cname: present
+  certificate_cname: present
+next_step: update_porkbun_nameservers
+rollback: restore old_authoritative_nameservers through Porkbun
