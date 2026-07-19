@@ -254,6 +254,32 @@ async def test_demo_recovery_resumes_when_only_demo_risk_remains(tmp_path: Path)
         await repository.close()
 
 
+async def test_demo_schedules_malicious_inputs_with_jitter(tmp_path: Path) -> None:
+    repository = SQLiteRepository(tmp_path / "tower.db")
+    await repository.connect()
+    try:
+        service = DemoService(
+            Settings(
+                environment="test",
+                data_dir=tmp_path,
+                demo_min_interval_seconds=10,
+                demo_max_interval_seconds=30,
+            ),
+            repository,
+            EventHub(repository),
+            object(),
+            random_delay=lambda low, high: 17,
+        )
+        await service.start()
+        await asyncio.sleep(0)
+        state = await service.state()
+        assert state["running"] is True
+        assert state["next_in_seconds"] == 17
+        await service.stop()
+    finally:
+        await repository.close()
+
+
 async def test_replayed_lock_reuses_existing_incident(tmp_path: Path) -> None:
     repository = SQLiteRepository(tmp_path / "tower.db")
     await repository.connect()

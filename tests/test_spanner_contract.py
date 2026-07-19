@@ -65,6 +65,9 @@ async def test_spanner_repository_deduplication_and_event_ordering() -> None:
         assert completed_source.processing_owner is None
         await repository.record_apify_success_at(ingestion_at)
         assert await repository.get_last_apify_success_at() == ingestion_at
+        next_dispatch = ingestion_at + timedelta(seconds=17)
+        await repository.record_next_source_dispatch_at(next_dispatch)
+        assert await repository.get_next_source_dispatch_at() == next_dispatch
         first = await repository.append_event(
             TowerEvent(type=EventType.CONTENT_RECEIVED, source_item_id=source_id)
         )

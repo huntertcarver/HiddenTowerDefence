@@ -26,6 +26,7 @@ from app.heartbeat import Heartbeat
 from app.intelligence import IntelligenceService
 from app.models import EventType, TowerEvent, TrustState, Watchlist
 from app.orchestrator import Orchestrator
+from app.pacing import SourceDispatchQueue
 from app.repositories import SpannerRepository, SQLiteRepository
 from app.security import SecurityScanner
 from app.sources.apify_source import ApifyScheduler, ApifySource
@@ -111,9 +112,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         repository,
         events,
         apify,
-        orchestrator.process,
+        orchestrator.enqueue,
     )
     apify_scheduler = ApifyScheduler(settings, repository, apify_source)
+    source_dispatch = SourceDispatchQueue(
+        settings, repository, orchestrator.process
+    )
     demo = DemoService(settings, repository, events, orchestrator)
     auth = OperatorSessionManager(settings)
     lease_owner = uuid4().hex
@@ -131,8 +135,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 payload={"lease_owner": lease_owner[:8]},
             )
         )
-        for pending_item in await repository.list_pending_source_items(limit=50):
-            await orchestrator.process(pending_item)
+        await source_dispatch.dispatch_one_if_due()
         if settings.environment == "test":
             return
         if settings.apify_api_token is None:
@@ -152,6 +155,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         "apify": apify,
         "apify_source": apify_source,
         "apify_scheduler": apify_scheduler,
+        "source_dispatch": source_dispatch,
         "scanner": scanner,
         "dispatcher": dispatcher,
         "intelligence": intelligence,
@@ -161,8 +165,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     if await repository.acquire_lease(
         "pending_replay", lease_owner, settings.heartbeat_lease_seconds
     ):
-        for pending_item in await repository.list_pending_source_items(limit=50):
-            await orchestrator.process(pending_item)
+        await source_dispatch.dispatch_one_if_due()
     await heartbeat.start()
     try:
         yield

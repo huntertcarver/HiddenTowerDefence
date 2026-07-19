@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import random
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -19,6 +21,8 @@ from app.models import (
 from app.orchestrator import Orchestrator
 from app.repositories import Repository
 
+RandomDelay = Callable[[int, int], int]
+
 
 class DemoService:
     def __init__(
@@ -27,11 +31,13 @@ class DemoService:
         repository: Repository,
         events: EventHub,
         orchestrator: Orchestrator,
+        random_delay: RandomDelay | None = None,
     ) -> None:
         self._settings = settings
         self._repository = repository
         self._events = events
         self._orchestrator = orchestrator
+        self._random_delay = random_delay or random.SystemRandom().randint
         self._task: asyncio.Task[None] | None = None
         fixture_path = Path(__file__).parents[1] / "fixtures" / "attack_feed.json"
         self._fixtures: list[dict[str, Any]] = json.loads(fixture_path.read_text())
@@ -155,9 +161,30 @@ class DemoService:
         return await self._repository.get_demo_state()
 
     async def _run(self) -> None:
-        fixture_ids = [fixture["id"] for fixture in self._fixtures]
+        fixture_ids = [
+            fixture["id"]
+            for fixture in self._fixtures
+            if fixture["risk"] != "clean"
+        ]
         step = 0
         while True:
+            low = min(
+                self._settings.demo_min_interval_seconds,
+                self._settings.demo_max_interval_seconds,
+            )
+            high = max(
+                self._settings.demo_min_interval_seconds,
+                self._settings.demo_max_interval_seconds,
+            )
+            delay_seconds = self._random_delay(low, high)
+            await self._set_state(
+                {
+                    "running": True,
+                    "step": step,
+                    "next_in_seconds": delay_seconds,
+                }
+            )
+            await asyncio.sleep(delay_seconds)
             if step:
                 await self._recover_for_next_step()
             fixture_id = fixture_ids[step % len(fixture_ids)]
@@ -166,7 +193,6 @@ class DemoService:
             await self._set_state(
                 {"running": True, "step": step, "last_fixture_id": fixture_id}
             )
-            await asyncio.sleep(self._settings.demo_interval_seconds)
 
     async def _recover_for_next_step(self) -> None:
         source_item_id = self._last_source_item_id

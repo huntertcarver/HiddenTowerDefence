@@ -3,7 +3,13 @@ import Phaser from "phaser";
 import { ApiClient, EventConnection } from "./api";
 import "./styles.css";
 import { TowerScene } from "./TowerScene";
-import type { Approval, EntityHoverDetail, Evidence, TowerEvent } from "./types";
+import type {
+  Approval,
+  EntityHoverDetail,
+  Evidence,
+  SceneSnapshot,
+  TowerEvent,
+} from "./types";
 
 const api = new ApiClient();
 const towerScene = new TowerScene();
@@ -44,7 +50,7 @@ async function bootstrap(): Promise<void> {
     renderIncidentControls(snapshot);
     cursor = snapshot.cursor;
     for (const event of await api.events(Math.max(snapshot.cursor - 100, 0))) {
-      handleEvent(event);
+      handleEvent(event, false);
     }
     const connection = new EventConnection(handleEvent, updateConnection);
     connection.connect(cursor);
@@ -66,7 +72,7 @@ async function bootstrap(): Promise<void> {
   });
 }
 
-function handleEvent(event: TowerEvent): void {
+function handleEvent(event: TowerEvent, animate = true): void {
   if (seenEvents.has(event.id)) return;
   seenEvents.add(event.id);
   if (seenEvents.size > 1000) {
@@ -74,7 +80,7 @@ function handleEvent(event: TowerEvent): void {
     if (first !== undefined) seenEvents.delete(first);
   }
   cursor = Math.max(cursor, event.id);
-  towerScene.applyEvent(event);
+  if (animate) towerScene.applyEvent(event);
   const entityId = event.entity_id ?? event.source_item_id;
   if (entityId) {
     const history = eventsByEntity.get(entityId) ?? [];

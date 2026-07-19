@@ -67,6 +67,10 @@ class Repository(Protocol):
 
     async def record_apify_success_at(self, occurred_at: datetime) -> None: ...
 
+    async def get_next_source_dispatch_at(self) -> datetime | None: ...
+
+    async def record_next_source_dispatch_at(self, occurred_at: datetime) -> None: ...
+
     async def append_event(self, event: TowerEvent) -> TowerEvent: ...
 
     async def list_events(self, after_id: int = 0, limit: int = 200) -> list[TowerEvent]: ...
@@ -274,6 +278,27 @@ class SQLiteRepository:
                 """
                 INSERT INTO runtime_state (state_key, state_value)
                 VALUES ('last_apify_success_at', ?)
+                ON CONFLICT(state_key) DO UPDATE SET state_value = excluded.state_value
+                """,
+                (occurred_at.astimezone(UTC).isoformat(),),
+            )
+
+    async def get_next_source_dispatch_at(self) -> datetime | None:
+        cursor = await self.connection.execute(
+            """
+            SELECT state_value FROM runtime_state
+            WHERE state_key = 'next_source_dispatch_at'
+            """
+        )
+        row = await cursor.fetchone()
+        return datetime.fromisoformat(row["state_value"]) if row else None
+
+    async def record_next_source_dispatch_at(self, occurred_at: datetime) -> None:
+        async with self.transaction():
+            await self.connection.execute(
+                """
+                INSERT INTO runtime_state (state_key, state_value)
+                VALUES ('next_source_dispatch_at', ?)
                 ON CONFLICT(state_key) DO UPDATE SET state_value = excluded.state_value
                 """,
                 (occurred_at.astimezone(UTC).isoformat(),),
@@ -1854,6 +1879,24 @@ class SpannerRepository:
                 "RuntimeState",
                 ["state_key", "state_value"],
                 [["last_apify_success_at", value]],
+            ),
+        )
+
+    async def get_next_source_dispatch_at(self) -> datetime | None:
+        row = await self._read_one(
+            "SELECT state_value FROM RuntimeState WHERE state_key = @key",
+            {"key": "next_source_dispatch_at"},
+        )
+        return datetime.fromisoformat(row[0]) if row else None
+
+    async def record_next_source_dispatch_at(self, occurred_at: datetime) -> None:
+        value = occurred_at.astimezone(UTC).isoformat()
+        await asyncio.to_thread(
+            self.database.run_in_transaction,
+            lambda transaction: transaction.insert_or_update(
+                "RuntimeState",
+                ["state_key", "state_value"],
+                [["next_source_dispatch_at", value]],
             ),
         )
 
