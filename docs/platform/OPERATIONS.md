@@ -27,6 +27,30 @@ reaches `main`:
 
 No long-lived Google key is permitted in GitHub Actions.
 
+## Terraform backend access bootstrap
+
+The deployer requires object-level read/write/delete/list access to the single
+Terraform state bucket. Terraform codifies this as a bucket-scoped
+`roles/storage.objectAdmin` member; do not grant a project-wide storage role.
+
+If `terraform init` fails with `storage.objects.list` before Terraform can read
+its own state, an existing privileged platform administrator must perform the
+one-time bootstrap:
+
+```bash
+gcloud storage buckets add-iam-policy-binding \
+  gs://smp-substrate-tfstate-prod \
+  --member="serviceAccount:hiddentower-deployer-prod@smp-shared-prod.iam.gserviceaccount.com" \
+  --role="roles/storage.objectAdmin"
+```
+
+This workspace cannot self-bootstrap through the normal deployment workflow:
+backend initialization happens before Terraform can apply the IAM member.
+Cloud Storage IAM can be eventually consistent, so wait several minutes and
+retry `Deploy production` if the first initialization still returns 403.
+After the workflow succeeds, normal Terraform state records and maintains the
+same bucket IAM member.
+
 ## Rollback
 
 Run `Roll back production` with a release artifact's immutable digest. The
