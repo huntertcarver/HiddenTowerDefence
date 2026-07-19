@@ -1,0 +1,45 @@
+status: completed
+product: hiddentowerdefence
+decommissioned:
+  terraform_managed_resources: 58
+  cloud_run_service: hiddentowerdefence
+  spanner_database: hiddentowerdefence
+  runtime_secrets: 5
+  service_accounts:
+    - hiddentower-runtime-prod
+    - hiddentower-deployer-prod
+  workload_identity_pool: hiddentower-github
+  cloud_dns_zone: hiddentowerdefence-com
+  https_edge: removed
+  observability_resources: removed
+  artifact_registry_image_digests: 9
+  cloud_build_source_objects: 2
+  terraform_state_prefix: products/hiddentowerdefence/prod
+  temporary_bootstrap_iam_grants: removed
+domain:
+  authority_restored_to: Porkbun
+  nameservers:
+    - curitiba.ns.porkbun.com
+    - fortaleza.ns.porkbun.com
+    - maceio.ns.porkbun.com
+    - salvador.ns.porkbun.com
+  gcp_certificate_cname_removed: true
+shared_resources_preserved:
+  project: smp-shared-prod
+  spanner_instance: smp-prod-shared-spanner
+  spanner_databases:
+    - customeros
+    - factory_bootstrap
+    - travelbook
+  artifact_registry_repository: shared-platform-images
+  terraform_state_bucket: smp-substrate-tfstate-prod
+  cloud_build_source_bucket: smp-shared-prod_cloudbuild
+verification:
+  product_terraform_state_empty: true
+  product_images_remaining: 0
+  product_iam_members_remaining: 0
+  product_service_accounts_remaining: 0
+  product_cloud_run_services_remaining: 0
+  product_dns_zones_remaining: 0
+  product_secrets_remaining: 0
+note: Cloud Asset Inventory may temporarily show deleted resources until indexing converges; direct resource APIs return not found.
