@@ -61,3 +61,45 @@ async def test_stale_tool_request_is_replayed(tmp_path: Path) -> None:
         assert len(await repository.list_briefs()) == 1
     finally:
         await repository.close()
+
+
+async def test_executing_tool_request_is_not_replayed(tmp_path: Path) -> None:
+    repository = SQLiteRepository(tmp_path / "tower.db")
+    await repository.connect()
+    try:
+        item = SourceItem(id="hn:executing", title="Executing tool request")
+        await repository.store_source_item(item)
+        arguments = {"title": item.title, "summary": "Already running"}
+        idempotency_key = ToolDispatcher._idempotency_key(item.id, "save_brief", arguments)
+        request, created = await repository.create_tool_request(
+            ToolRequest(
+                source_item_id=item.id,
+                name="save_brief",
+                arguments=arguments,
+                idempotency_key=idempotency_key,
+            )
+        )
+        assert created
+        executing = await repository.update_tool_request(request.id, ToolStatus.EXECUTING)
+        assert executing is not None
+
+        events = EventHub(repository)
+        scanner = SecurityScanner(repository, events, FailingHiddenLayerClient())
+        dispatcher = ToolDispatcher(
+            repository,
+            events,
+            scanner,
+            ControlledTools(repository),
+        )
+        returned = await dispatcher.request(
+            item.id,
+            "save_brief",
+            arguments,
+            TrustState.NORMAL,
+        )
+
+        assert returned.id == request.id
+        assert returned.status == ToolStatus.EXECUTING
+        assert len(await repository.list_briefs()) == 0
+    finally:
+        await repository.close()

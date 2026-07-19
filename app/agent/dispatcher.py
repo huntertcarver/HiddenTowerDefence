@@ -61,6 +61,7 @@ class ToolDispatcher:
             ToolStatus.BLOCKED,
             ToolStatus.DEFERRED,
             ToolStatus.DENIED,
+            ToolStatus.EXECUTING,
         }:
             return request
         if created:
