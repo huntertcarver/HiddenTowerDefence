@@ -146,6 +146,13 @@ async def test_demo_recovery_only_resolves_current_demo_incident(tmp_path: Path)
         real_incident = await repository.create_incident(
             Incident(source_item_id=real_item.id, severity="High", summary="Real")
         )
+        await repository.create_taint(
+            TaintRecord(source_item_id=demo_item.id, reason="demo")
+        )
+        await repository.create_taint(
+            TaintRecord(source_item_id=real_item.id, reason="real")
+        )
+        await repository.set_trust_state(TrustState.LOCKED)
 
         service = DemoService(
             Settings(environment="test", data_dir=tmp_path),
@@ -162,6 +169,45 @@ async def test_demo_recovery_only_resolves_current_demo_incident(tmp_path: Path)
         assert by_id[demo_incident.id].status == IncidentStatus.RESOLVED
         assert by_id[real_incident.id].status == IncidentStatus.OPEN
         assert by_id[real_incident.id].resolution is None
+        assert not await repository.is_tainted(demo_item.id)
+        assert await repository.is_tainted(real_item.id)
+        assert await repository.get_trust_state() == TrustState.LOCKED
+    finally:
+        await repository.close()
+
+
+async def test_demo_recovery_resumes_when_only_demo_risk_remains(tmp_path: Path) -> None:
+    repository = SQLiteRepository(tmp_path / "tower.db")
+    await repository.connect()
+    try:
+        demo_item = SourceItem(
+            id="fixture:locked:isolated",
+            title="Demo item",
+            source="fixture",
+            simulated=True,
+            run_id="demo:isolated",
+        )
+        await repository.store_source_item(demo_item)
+        await repository.create_taint(
+            TaintRecord(source_item_id=demo_item.id, reason="demo")
+        )
+        await repository.create_incident(
+            Incident(source_item_id=demo_item.id, severity="High", summary="Demo")
+        )
+        await repository.set_trust_state(TrustState.LOCKED)
+        service = DemoService(
+            Settings(environment="test", data_dir=tmp_path),
+            repository,
+            EventHub(repository),
+            object(),
+        )
+        service._last_source_item_id = demo_item.id
+
+        await service._recover_for_next_step()
+
+        assert not await repository.has_active_taints()
+        assert await repository.list_incidents(active_only=True) == []
+        assert await repository.get_trust_state() == TrustState.NORMAL
     finally:
         await repository.close()
 

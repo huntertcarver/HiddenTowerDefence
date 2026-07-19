@@ -183,7 +183,15 @@ class DemoService:
                 incident.id, "automatic demo operator resolution"
             )
         current = await self._repository.get_trust_state()
-        if current != TrustState.NORMAL:
+        has_active_taints = await self._repository.has_active_taints()
+        has_active_incidents = bool(
+            await self._repository.list_incidents(active_only=True)
+        )
+        if (
+            current != TrustState.NORMAL
+            and not has_active_taints
+            and not has_active_incidents
+        ):
             transition = await self._repository.transition_trust_state(
                 TrustState.NORMAL,
                 "automatic_demo_resume",
