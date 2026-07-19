@@ -245,6 +245,10 @@ class ApifyScheduler:
             < self._settings.apify_interval_seconds
         ):
             return False
+        return await self.run_now(current)
+
+    async def run_now(self, now: datetime | None = None) -> bool:
+        current = (now or datetime.now(UTC)).astimezone(UTC)
         run = await self._source.run_once()
         if run is None or run.status != SourceRunStatus.SUCCEEDED:
             return False

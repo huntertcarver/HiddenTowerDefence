@@ -168,6 +168,11 @@ async def test_apify_scheduler_shares_success_cadence_across_holders(
             now + timedelta(seconds=settings.apify_interval_seconds - 1)
         )
         assert next_source.calls == 0
+        assert await next_holder.run_now(now + timedelta(seconds=10))
+        assert next_source.calls == 1
+        assert await repository.get_last_apify_success_at() == now + timedelta(
+            seconds=10
+        )
     finally:
         await repository.close()
 
