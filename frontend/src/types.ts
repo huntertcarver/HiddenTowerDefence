@@ -53,4 +53,35 @@ export interface EntityState {
   kind: "traveler" | "citizen" | "restricted" | "enemy" | "worker" | "messenger";
   eventIds: number[];
   simulated: boolean;
+  title?: string;
+}
+
+/** Payload dispatched by the game scene when the pointer enters an entity. */
+export interface EntityHoverDetail {
+  entityId: string | null;
+  kind: EntityState["kind"] | "guard";
+  simulated: boolean;
+  title: string | null;
+  x: number;
+  y: number;
+}
+
+export interface ScanSummary {
+  boundary: string;
+  action: string;
+  threat_level: string;
+  detected: boolean;
+}
+
+export interface Evidence {
+  source: {
+    id: string;
+    title: string;
+    text: string;
+    comments: string[];
+    source: string;
+    simulated: boolean;
+  };
+  scans: ScanSummary[];
+  scope: string;
 }

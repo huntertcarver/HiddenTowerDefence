@@ -429,6 +429,154 @@ dialog::backdrop {
   font-size: 0.7rem;
 }
 
+.legend {
+  margin: 0.4rem 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.68rem;
+  line-height: 1.55;
+  color: var(--muted);
+}
+
+.legend li {
+  display: flex;
+  align-items: baseline;
+  gap: 0.45rem;
+  padding-block: 0.12rem;
+}
+
+.legend strong {
+  color: var(--text);
+}
+
+.chip {
+  flex: 0 0 auto;
+  width: 0.7rem;
+  height: 0.7rem;
+  border: 1px solid rgb(255 255 255 / 35%);
+  background: var(--chip, #fff);
+  image-rendering: pixelated;
+  transform: translateY(0.05rem);
+}
+
+#entity-tooltip {
+  position: fixed;
+  z-index: 50;
+  max-width: 21rem;
+  padding: 0.6rem 0.7rem;
+  border: 2px solid var(--line);
+  border-radius: 3px;
+  background: var(--panel-solid);
+  box-shadow: 0 14px 40px rgb(0 0 0 / 55%);
+  font-size: 0.7rem;
+  line-height: 1.45;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 90ms linear;
+}
+
+#entity-tooltip.visible {
+  opacity: 1;
+}
+
+.tooltip-header {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin-bottom: 0.35rem;
+  font-size: 0.74rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.tooltip-header.kind-traveler strong { color: #5da9e9; }
+.tooltip-header.kind-citizen strong { color: #67d391; }
+.tooltip-header.kind-restricted strong { color: #d9a2ea; }
+.tooltip-header.kind-enemy strong { color: #ff8d8d; }
+.tooltip-header.kind-guard strong { color: #ccd3de; }
+.tooltip-header.kind-worker strong { color: #e0a458; }
+.tooltip-header.kind-messenger strong { color: #8ecdf5; }
+
+.tooltip-title {
+  margin: 0 0 0.3rem;
+  color: var(--text);
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.tooltip-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin: 0 0 0.35rem;
+}
+
+.tag {
+  border: 1px solid var(--line);
+  padding: 0.08rem 0.35rem;
+  color: var(--muted);
+  font-size: 0.6rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.tag.simulated {
+  border-color: var(--blue);
+  color: var(--blue);
+}
+
+.tag.verdict-normal {
+  border-color: var(--normal);
+  color: var(--normal);
+}
+
+.tag.verdict-restricted {
+  border-color: var(--restricted);
+  color: var(--restricted);
+}
+
+.tag.verdict-locked {
+  border-color: var(--locked);
+  color: var(--locked);
+}
+
+.tooltip-excerpt {
+  margin: 0 0 0.35rem;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.tooltip-scans {
+  margin: 0 0 0.35rem;
+  padding: 0.35rem 0.45rem;
+  list-style: none;
+  background: #09111d;
+  border: 1px solid #213249;
+}
+
+.tooltip-scans li {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.6rem;
+  padding-block: 0.08rem;
+  color: var(--muted);
+}
+
+.scan-clear {
+  color: var(--normal);
+}
+
+.scan-flagged {
+  color: var(--locked);
+}
+
+.tooltip-hint {
+  margin: 0;
+  color: #6f8ba7;
+  font-size: 0.6rem;
+  font-style: italic;
+}
+
 @keyframes alarm {
   from {
     background: #421f25;
