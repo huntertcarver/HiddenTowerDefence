@@ -45,6 +45,10 @@ class Orchestrator:
         self._intelligence = intelligence
         self._worker_id = worker_id or uuid4().hex
 
+    async def enqueue(self, item: SourceItem) -> bool:
+        """Persist source content for paced processing without animating it yet."""
+        return await self._repository.store_source_item(item)
+
     async def process(
         self,
         item: SourceItem,
@@ -55,6 +59,11 @@ class Orchestrator:
         tool_result_override: ScanResult | None = None,
     ) -> bool:
         inserted = await self._repository.store_source_item(item)
+        existing = None if inserted else await self._repository.get_source_item(item.id)
+        should_announce = inserted or (
+            existing is not None
+            and existing.processing_status == ProcessingStatus.PENDING
+        )
         claimed = await self._repository.claim_source_item(
             item.id,
             self._worker_id,
@@ -63,7 +72,7 @@ class Orchestrator:
         if claimed is None:
             return False
         item = claimed
-        if inserted:
+        if should_announce:
             await self._emit(
                 EventType.CONTENT_RECEIVED,
                 item.id,

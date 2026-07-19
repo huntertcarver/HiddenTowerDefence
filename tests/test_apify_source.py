@@ -1,3 +1,4 @@
+import logging
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -86,10 +87,13 @@ async def test_apify_source_resumes_exact_persisted_run(tmp_path: Path) -> None:
         await repository.close()
 
 
-async def test_apify_source_uses_fallback_after_primary_failure(tmp_path: Path) -> None:
+async def test_apify_source_uses_fallback_after_primary_failure(
+    tmp_path: Path, caplog
+) -> None:
     repository = SQLiteRepository(tmp_path / "tower.db")
     await repository.connect()
     try:
+        caplog.set_level(logging.INFO)
         client = FakeApifyClient({"run-1": "FAILED", "run-2": "SUCCEEDED"})
 
         async def process(item: SourceItem) -> bool:
@@ -113,6 +117,21 @@ async def test_apify_source_uses_fallback_after_primary_failure(tmp_path: Path) 
             settings.apify_fallback_actor_id,
         ]
         assert client.polled == ["run-1", "run-2"]
+        messages = [
+            record.getMessage()
+            for record in caplog.records
+            if record.name == "app.sources.apify_source"
+        ]
+        assert any(
+            '"event": "started"' in message and '"fallback": false' in message
+            for message in messages
+        )
+        assert any(
+            '"event": "completed"' in message
+            and '"status": "succeeded"' in message
+            for message in messages
+        )
+        assert all("Bearer " not in message for message in messages)
     finally:
         await repository.close()
 

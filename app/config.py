@@ -36,6 +36,8 @@ class Settings(BaseSettings):
     heartbeat_interval_seconds: int = Field(default=15, ge=5)
     heartbeat_lease_seconds: int = Field(default=45, ge=15)
     source_processing_lease_seconds: int = Field(default=300, ge=30, le=3600)
+    source_dispatch_min_seconds: int = Field(default=8, ge=1, le=120)
+    source_dispatch_max_seconds: int = Field(default=25, ge=1, le=300)
 
     hiddenlayer_client_id: SecretStr | None = Field(
         default=None,
@@ -62,6 +64,8 @@ class Settings(BaseSettings):
     operator_login_attempts: int = Field(default=5, ge=1, le=20)
     operator_rate_window_seconds: int = Field(default=60, ge=10, le=3600)
     demo_interval_seconds: int = Field(default=8, ge=2, le=120)
+    demo_min_interval_seconds: int = Field(default=12, ge=2, le=300)
+    demo_max_interval_seconds: int = Field(default=45, ge=2, le=600)
 
     @field_validator("data_dir")
     @classmethod

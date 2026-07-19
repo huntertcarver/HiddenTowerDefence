@@ -3,7 +3,13 @@ import Phaser from "phaser";
 import { ApiClient, EventConnection } from "./api";
 import "./styles.css";
 import { TowerScene } from "./TowerScene";
-import type { Approval, EntityHoverDetail, Evidence, TowerEvent } from "./types";
+import type {
+  Approval,
+  EntityHoverDetail,
+  Evidence,
+  SceneSnapshot,
+  TowerEvent,
+} from "./types";
 
 const api = new ApiClient();
 const towerScene = new TowerScene();
@@ -19,6 +25,7 @@ const connectionBadge = requiredElement("#connection-state");
 const consoleList = requiredElement("#console-list");
 const detailPanel = requiredElement("#entity-details");
 const approvalPanel = requiredElement("#approval-panel");
+const incidentPanel = requiredElement("#incident-panel");
 const operatorDialog = document.querySelector<HTMLDialogElement>("#operator-dialog");
 const operatorButton = requiredElement("#operator-button");
 const loginForm = document.querySelector<HTMLFormElement>("#operator-login");
@@ -40,9 +47,10 @@ async function bootstrap(): Promise<void> {
   towerScene.onReady(async () => {
     towerScene.applySnapshot(snapshot);
     renderApprovals(snapshot.approvals);
+    renderIncidentControls(snapshot);
     cursor = snapshot.cursor;
     for (const event of await api.events(Math.max(snapshot.cursor - 100, 0))) {
-      handleEvent(event);
+      handleEvent(event, false);
     }
     const connection = new EventConnection(handleEvent, updateConnection);
     connection.connect(cursor);
@@ -64,7 +72,7 @@ async function bootstrap(): Promise<void> {
   });
 }
 
-function handleEvent(event: TowerEvent): void {
+function handleEvent(event: TowerEvent, animate = true): void {
   if (seenEvents.has(event.id)) return;
   seenEvents.add(event.id);
   if (seenEvents.size > 1000) {
@@ -72,7 +80,7 @@ function handleEvent(event: TowerEvent): void {
     if (first !== undefined) seenEvents.delete(first);
   }
   cursor = Math.max(cursor, event.id);
-  towerScene.applyEvent(event);
+  if (animate) towerScene.applyEvent(event);
   const entityId = event.entity_id ?? event.source_item_id;
   if (entityId) {
     const history = eventsByEntity.get(entityId) ?? [];
@@ -81,9 +89,13 @@ function handleEvent(event: TowerEvent): void {
   }
   prependConsoleEvent(event);
   if (
-    ["approval_created", "approval_resolved", "incident_created", "incident_resolved"].includes(
-      event.type,
-    )
+    [
+      "approval_created",
+      "approval_resolved",
+      "incident_created",
+      "incident_acknowledged",
+      "incident_resolved",
+    ].includes(event.type)
   ) {
     refreshSnapshot().catch(showError);
   }
@@ -138,6 +150,7 @@ async function refreshSnapshot(): Promise<void> {
   const snapshot = await api.snapshot();
   towerScene.applySnapshot(snapshot);
   renderApprovals(snapshot.approvals);
+  renderIncidentControls(snapshot);
 }
 
 function renderApprovals(approvals: Approval[]): void {
@@ -166,6 +179,62 @@ function renderApprovals(approvals: Approval[]): void {
     );
     card.append(approve, deny);
     approvalPanel.append(card);
+  }
+}
+
+function renderIncidentControls(snapshot: SceneSnapshot): void {
+  incidentPanel.replaceChildren();
+  const demoRunning = snapshot.demo.running === true;
+  if (demoRunning) {
+    const stopDemo = document.createElement("button");
+    stopDemo.className = "secondary";
+    stopDemo.textContent = "Stop demo";
+    stopDemo.addEventListener("click", () => operatorMutation("/api/demo/stop"));
+    incidentPanel.append(stopDemo);
+  }
+  for (const incident of snapshot.incidents) {
+    const card = document.createElement("article");
+    card.className = "incident-card";
+    card.innerHTML = `
+      <strong>${escapeText(incident.severity)} incident</strong>
+      <span>${escapeText(incident.source_item_id)}</span>
+      <p>${escapeText(incident.summary)}</p>
+    `;
+    if (incident.status === "open") {
+      const acknowledge = document.createElement("button");
+      acknowledge.textContent = "Acknowledge";
+      acknowledge.addEventListener("click", () =>
+        operatorMutation(`/api/incidents/${incident.id}/acknowledge`),
+      );
+      card.append(acknowledge);
+    } else {
+      const resolve = document.createElement("button");
+      resolve.textContent = "Resolve";
+      resolve.addEventListener("click", () => {
+        const resolution = window.prompt(
+          "Resolution reason",
+          "Reviewed and resolved by the operator",
+        );
+        if (resolution?.trim()) {
+          void operatorMutation(`/api/incidents/${incident.id}/resolve`, {
+            resolution: resolution.trim(),
+          });
+        }
+      });
+      card.append(resolve);
+    }
+    incidentPanel.append(card);
+  }
+  if (!snapshot.incidents.length) {
+    const empty = document.createElement("p");
+    empty.textContent = "No active incidents.";
+    incidentPanel.append(empty);
+  }
+  if (snapshot.trust_state === "RESTRICTED" && !snapshot.incidents.length) {
+    const resume = document.createElement("button");
+    resume.textContent = "Resume normal";
+    resume.addEventListener("click", () => operatorMutation("/api/state/resume"));
+    incidentPanel.append(resume);
   }
 }
 

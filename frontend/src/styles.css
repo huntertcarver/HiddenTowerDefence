@@ -197,6 +197,7 @@ details > :not(summary) {
 }
 
 .approval-panel > p,
+.incident-panel > p,
 .hint,
 #entity-details p {
   color: var(--muted);
@@ -220,6 +221,38 @@ details > :not(summary) {
   grid-column: 1 / -1;
   color: var(--muted);
   overflow-wrap: anywhere;
+}
+
+.incident-panel > .secondary {
+  width: 100%;
+  margin-bottom: 0.5rem;
+}
+
+.incident-card {
+  display: grid;
+  gap: 0.4rem;
+  margin-bottom: 0.5rem;
+  padding: 0.55rem;
+  border-left: 3px solid var(--locked);
+  background: #2a171b;
+  font-size: 0.7rem;
+}
+
+.incident-card strong {
+  color: #ff9a9a;
+  text-transform: uppercase;
+}
+
+.incident-card span,
+.incident-card p {
+  margin: 0;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.incident-card button,
+.incident-panel > button {
+  width: 100%;
 }
 
 .button-row,

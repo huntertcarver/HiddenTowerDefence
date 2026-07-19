@@ -20,6 +20,30 @@ test("renders a full-viewport top-down game on desktop", async ({ page }) => {
   await expect(page.getByRole("region", { name: "Sanitized backend console" })).toBeVisible();
 });
 
+test("operator can acknowledge resolve and resume an incident", async ({
+  page,
+}, testInfo) => {
+  test.skip(testInfo.project.name !== "desktop-chromium");
+  await page.goto("/");
+  await login(page);
+  await page.getByText("Demo sequence", { exact: true }).click();
+  await page.getByRole("button", { name: "locked", exact: true }).click();
+  await expect(page.locator(".trust-state")).toHaveText("LOCKED");
+
+  const incident = page.locator(".incident-card").first();
+  await expect(incident).toBeVisible();
+  await incident.getByRole("button", { name: "Acknowledge" }).click();
+  await expect(page.locator(".trust-state")).toHaveText("RESTRICTED");
+
+  page.once("dialog", (dialog) =>
+    dialog.accept("Reviewed simulated incident"),
+  );
+  await incident.getByRole("button", { name: "Resolve" }).click();
+  await expect(page.locator(".incident-card")).toHaveCount(0);
+  await page.getByRole("button", { name: "Resume normal" }).click();
+  await expect(page.locator(".trust-state")).toHaveText("NORMAL");
+});
+
 test("animates clean and restricted paths with console synchronization", async ({
   page,
 }) => {
