@@ -1,3 +1,4 @@
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -5,7 +6,7 @@ from app.config import Settings
 from app.events import EventHub
 from app.models import SourceItem, SourceRun, SourceRunStatus
 from app.repositories import SQLiteRepository
-from app.sources.apify_source import ApifySource
+from app.sources.apify_source import ApifyScheduler, ApifySource
 
 
 class FakeApifyClient:
@@ -35,6 +36,19 @@ class FakeApifyClient:
     @staticmethod
     def normalize(item: dict[str, Any]) -> SourceItem:
         return SourceItem(id=f"hn:{item['id']}", title=str(item["title"]))
+
+
+class FakeApifySource:
+    def __init__(self, outcomes: list[SourceRun | Exception]) -> None:
+        self.outcomes = outcomes
+        self.calls = 0
+
+    async def run_once(self) -> SourceRun:
+        outcome = self.outcomes[self.calls]
+        self.calls += 1
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
 
 
 async def test_apify_source_resumes_exact_persisted_run(tmp_path: Path) -> None:
@@ -99,5 +113,70 @@ async def test_apify_source_uses_fallback_after_primary_failure(tmp_path: Path) 
             settings.apify_fallback_actor_id,
         ]
         assert client.polled == ["run-1", "run-2"]
+    finally:
+        await repository.close()
+
+
+async def test_apify_scheduler_shares_success_cadence_across_holders(
+    tmp_path: Path,
+) -> None:
+    repository = SQLiteRepository(tmp_path / "tower.db")
+    await repository.connect()
+    try:
+        now = datetime(2026, 7, 19, 12, tzinfo=UTC)
+        run = SourceRun(
+            id="run-success",
+            actor_name="gentle_cloud/hacker-news-scraper",
+            status=SourceRunStatus.SUCCEEDED,
+        )
+        first_source = FakeApifySource([run])
+        settings = Settings(environment="test", data_dir=tmp_path)
+        first = ApifyScheduler(
+            settings,
+            repository,
+            first_source,  # type: ignore[arg-type]
+        )
+        assert await first.run_if_due(now)
+        assert await repository.get_last_apify_success_at() == now
+
+        next_source = FakeApifySource([run])
+        next_holder = ApifyScheduler(
+            settings,
+            repository,
+            next_source,  # type: ignore[arg-type]
+        )
+        assert not await next_holder.run_if_due(
+            now + timedelta(seconds=settings.apify_interval_seconds - 1)
+        )
+        assert next_source.calls == 0
+    finally:
+        await repository.close()
+
+
+async def test_apify_scheduler_does_not_throttle_failed_run(tmp_path: Path) -> None:
+    repository = SQLiteRepository(tmp_path / "tower.db")
+    await repository.connect()
+    try:
+        now = datetime(2026, 7, 19, 12, tzinfo=UTC)
+        success = SourceRun(
+            id="fallback-success",
+            actor_name="onescales/hacker-news-data",
+            status=SourceRunStatus.SUCCEEDED,
+            fallback_for_run_id="failed-primary",
+        )
+        source = FakeApifySource([RuntimeError("provider failed"), success])
+        scheduler = ApifyScheduler(
+            Settings(environment="test", data_dir=tmp_path),
+            repository,
+            source,  # type: ignore[arg-type]
+        )
+        try:
+            await scheduler.run_if_due(now)
+        except RuntimeError:
+            pass
+        assert await repository.get_last_apify_success_at() is None
+        assert await scheduler.run_if_due(now)
+        assert source.calls == 2
+        assert await repository.get_last_apify_success_at() == now
     finally:
         await repository.close()

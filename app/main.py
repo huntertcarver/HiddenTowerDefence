@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -29,7 +28,7 @@ from app.models import EventType, TowerEvent, TrustState, Watchlist
 from app.orchestrator import Orchestrator
 from app.repositories import SpannerRepository, SQLiteRepository
 from app.security import SecurityScanner
-from app.sources.apify_source import ApifySource
+from app.sources.apify_source import ApifyScheduler, ApifySource
 
 logger = logging.getLogger(__name__)
 
@@ -114,13 +113,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         apify,
         orchestrator.process,
     )
+    apify_scheduler = ApifyScheduler(settings, repository, apify_source)
     demo = DemoService(settings, repository, events, orchestrator)
     auth = OperatorSessionManager(settings)
-    last_ingestion_at = 0.0
     lease_owner = uuid4().hex
 
     async def heartbeat_tick() -> None:
-        nonlocal last_ingestion_at
         if not await repository.acquire_lease(
             "heartbeat", lease_owner, settings.heartbeat_lease_seconds
         ):
@@ -135,14 +133,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         )
         if settings.environment == "test":
             return
-        if (
-            settings.apify_api_token is None
-            or time.monotonic() - last_ingestion_at < settings.apify_interval_seconds
-        ):
+        if settings.apify_api_token is None:
             return
-        last_ingestion_at = time.monotonic()
         try:
-            await apify_source.run_once()
+            await apify_scheduler.run_if_due()
         except Exception:
             logger.exception("Apify ingestion failed")
 
@@ -155,6 +149,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         "heartbeat": heartbeat,
         "apify": apify,
         "apify_source": apify_source,
+        "apify_scheduler": apify_scheduler,
         "scanner": scanner,
         "dispatcher": dispatcher,
         "intelligence": intelligence,

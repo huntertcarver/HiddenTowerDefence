@@ -1,4 +1,5 @@
 import os
+from datetime import UTC, datetime
 from uuid import uuid4
 
 import pytest
@@ -32,6 +33,9 @@ async def test_spanner_repository_deduplication_and_event_ordering() -> None:
         item = SourceItem(id=source_id, title="Spanner contract")
         assert await repository.store_source_item(item)
         assert not await repository.store_source_item(item)
+        ingestion_at = datetime(2026, 7, 19, 12, tzinfo=UTC)
+        await repository.record_apify_success_at(ingestion_at)
+        assert await repository.get_last_apify_success_at() == ingestion_at
         first = await repository.append_event(
             TowerEvent(type=EventType.CONTENT_RECEIVED, source_item_id=source_id)
         )

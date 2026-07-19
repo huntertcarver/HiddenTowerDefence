@@ -178,3 +178,32 @@ class ApifySource:
                 "run_id": run_id,
             }
         )
+
+
+class ApifyScheduler:
+    """Coordinates source cadence from shared, success-only durable state."""
+
+    def __init__(
+        self,
+        settings: Settings,
+        repository: Repository,
+        source: ApifySource,
+    ) -> None:
+        self._settings = settings
+        self._repository = repository
+        self._source = source
+
+    async def run_if_due(self, now: datetime | None = None) -> bool:
+        current = (now or datetime.now(UTC)).astimezone(UTC)
+        last_success = await self._repository.get_last_apify_success_at()
+        if (
+            last_success is not None
+            and (current - last_success).total_seconds()
+            < self._settings.apify_interval_seconds
+        ):
+            return False
+        run = await self._source.run_once()
+        if run is None or run.status != SourceRunStatus.SUCCEEDED:
+            return False
+        await self._repository.record_apify_success_at(current)
+        return True
