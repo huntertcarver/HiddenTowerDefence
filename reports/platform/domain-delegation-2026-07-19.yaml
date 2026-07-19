@@ -1,4 +1,4 @@
-status: ready_for_delegation
+status: delegated_and_validated
 domain: hiddentowerdefence.com
 registrar: Porkbun
 old_authoritative_nameservers:
@@ -24,5 +24,11 @@ record_parity:
   spf_txt: present
   wildcard_cname: present
   certificate_cname: present
-next_step: update_porkbun_nameservers
+validation:
+  registry_rdap_nameservers: cloud_dns
+  google_dns_over_https_nameservers: cloud_dns
+  cloudflare_dns_over_https_nameservers: cloud_dns
+  direct_edge_https_health_status: 200
+  note: Local recursive resolver retained the former Porkbun delegation during its cached TTL.
+next_step: monitor_recursive_resolver_cache_expiry
 rollback: restore old_authoritative_nameservers through Porkbun
