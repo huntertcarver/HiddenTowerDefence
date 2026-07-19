@@ -54,23 +54,28 @@ class Orchestrator:
                 },
             )
         fail_closed = self._settings.hiddenlayer_fail_closed and intake.action == "Error"
-        state = state_for_scan(intake, fail_closed)
-        await self._transition(item.id, state, intake)
+        intake_state = state_for_scan(intake, fail_closed)
+        state = await self._transition(item.id, intake_state, intake)
         if state == TrustState.LOCKED:
-            await self._repository.create_incident(
-                Incident(
-                    source_item_id=item.id,
-                    severity=intake.threat_level,
-                    summary="High-risk content was blocked before model processing.",
+            if intake_state == TrustState.LOCKED:
+                await self._repository.create_incident(
+                    Incident(
+                        source_item_id=item.id,
+                        severity=intake.threat_level,
+                        summary="High-risk content was blocked before model processing.",
+                    )
                 )
-            )
-            await self._emit(EventType.INCIDENT_CREATED, item.id, {"severity": intake.threat_level})
+                await self._emit(
+                    EventType.INCIDENT_CREATED,
+                    item.id,
+                    {"severity": intake.threat_level},
+                )
             return True
 
         prompt = self._prompt_text(item)
         prompt_scan = await self._scan("prompt", item.id, prompt)
         state = max(state, state_for_scan(prompt_scan), key=self._state_rank)
-        await self._transition(item.id, state, prompt_scan)
+        state = await self._transition(item.id, state, prompt_scan)
         if not can_send_raw_content_to_model(state):
             return True
 
@@ -78,7 +83,7 @@ class Orchestrator:
         triage = await self._nemotron.triage(item)
         response_scan = await self._scan("response", item.id, triage.model_dump_json())
         state = max(state, state_for_scan(response_scan), key=self._state_rank)
-        await self._transition(item.id, state, response_scan)
+        state = await self._transition(item.id, state, response_scan)
         await self._repository.store_triage(item.id, triage)
         await self._emit(
             EventType.MODEL_COMPLETED,
@@ -118,17 +123,19 @@ class Orchestrator:
             )
         return scan
 
-    async def _transition(self, item_id: str, state: TrustState, scan: ScanResult) -> None:
+    async def _transition(self, item_id: str, state: TrustState, scan: ScanResult) -> TrustState:
         current = await self._repository.get_trust_state()
-        if current == state:
-            return
-        await self._repository.set_trust_state(state)
+        next_state = max(current, state, key=self._state_rank)
+        if current == next_state:
+            return current
+        await self._repository.set_trust_state(next_state)
         await self._emit(
             EventType.STATE_CHANGED,
             item_id,
-            {"from": current.value, "to": state.value, "reason": scan.action},
-            state,
+            {"from": current.value, "to": next_state.value, "reason": scan.action},
+            next_state,
         )
+        return next_state
 
     async def _emit(
         self,
