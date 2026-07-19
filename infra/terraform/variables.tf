@@ -8,6 +8,12 @@ variable "region" {
   default = "us-central1"
 }
 
+variable "terraform_state_bucket" {
+  type        = string
+  default     = "smp-substrate-tfstate-prod"
+  description = "Existing bucket used by the GCS backend for product Terraform state."
+}
+
 variable "image_digest" {
   type        = string
   description = "Immutable Artifact Registry image reference including @sha256 digest."

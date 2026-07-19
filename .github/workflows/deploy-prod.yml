@@ -31,6 +31,9 @@ jobs:
           service_account: hiddentower-deployer-prod@smp-shared-prod.iam.gserviceaccount.com
       - uses: google-github-actions/setup-gcloud@v2
       - uses: hashicorp/setup-terraform@v3
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
       - name: Build and publish immutable container
         id: image
         run: |
@@ -49,11 +52,12 @@ jobs:
           terraform apply -auto-approve \
             -target=google_spanner_database.application \
             -var="image_digest=${{ steps.image.outputs.image_digest }}"
-      - name: Install migration dependency
-        run: python -m pip install google-cloud-spanner
+      - name: Install application migration dependencies
+        run: python -m pip install .
       - name: Apply additive Spanner migrations
         run: |
           python -m app.migrations \
+            --backend spanner \
             --project "$PROJECT_ID" \
             --instance smp-prod-shared-spanner \
             --database hiddentowerdefence
@@ -62,12 +66,16 @@ jobs:
         run: |
           terraform apply -auto-approve \
             -var="image_digest=${{ steps.image.outputs.image_digest }}"
-      - name: Smoke test deployed health endpoint
+      - name: Smoke test deployed product surface
         working-directory: infra/terraform
         run: |
           URL="$(terraform output -raw service_uri)"
           curl --fail --retry 5 --retry-delay 5 "$URL/health"
           curl --fail --retry 5 --retry-delay 5 "$URL/readyz"
+          curl --fail --retry 5 --retry-delay 5 --output /dev/null "$URL/"
+          curl --fail --retry 5 --retry-delay 5 "$URL/api/state"
+          curl --fail --retry 5 --retry-delay 5 --output /dev/null \
+            "$URL/static/game/game.js"
           printf '%s\n' "${{ steps.image.outputs.image_digest }}" > /tmp/image-digest
           printf '%s\n' "$URL" > /tmp/service-url
       - uses: actions/upload-artifact@v4

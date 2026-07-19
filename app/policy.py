@@ -1,9 +1,11 @@
 from __future__ import annotations
 
-from app.models import ScanResult, TrustState
+from app.models import ScanRecord, ScanResult, TrustState
 
 
-def state_for_scan(scan: ScanResult, fail_closed: bool = False) -> TrustState:
+def state_for_scan(
+    scan: ScanResult | ScanRecord, fail_closed: bool = False
+) -> TrustState:
     """Translate a vendor result to the conservative product policy."""
 
     severity = scan.threat_level.strip().lower()

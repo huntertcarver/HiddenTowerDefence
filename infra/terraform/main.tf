@@ -17,6 +17,12 @@ resource "google_service_account" "deployer" {
   display_name = "Hidden Tower Defence GitHub Actions deployer"
 }
 
+resource "google_storage_bucket_iam_member" "deployer_terraform_state" {
+  bucket = var.terraform_state_bucket
+  role   = "roles/storage.objectAdmin"
+  member = "serviceAccount:${google_service_account.deployer.email}"
+}
+
 resource "google_iam_workload_identity_pool" "github" {
   project                   = var.project_id
   workload_identity_pool_id = "hiddentower-github"

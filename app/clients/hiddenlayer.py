@@ -29,7 +29,10 @@ class HiddenLayerClient:
         if self._owns_client:
             await self._client.aclose()
 
-    async def _token(self) -> str:
+    async def _token(self, *, force_refresh: bool = False) -> str:
+        if force_refresh:
+            self._access_token = None
+            self._token_expires_at = 0.0
         if self._access_token and time.monotonic() < self._token_expires_at:
             return self._access_token
         async with self._token_lock:
@@ -62,11 +65,18 @@ class HiddenLayerClient:
             self._settings.hiddenlayer_client_id is None
             or self._settings.hiddenlayer_client_secret is None
         ):
+            fail_closed = (
+                self._settings.environment == "production"
+                and self._settings.hiddenlayer_fail_closed
+            )
             return ScanResult(
                 boundary=boundary,
+                detected=fail_closed,
+                threat_level="Unknown" if fail_closed else "None",
+                action="Error" if fail_closed else "Allow",
+                provider_status="not_configured",
                 raw={"provider": "not_configured", "simulated": True},
             )
-        token = await self._token()
         payload = {
             "metadata": {
                 "model": model or self._settings.nvidia_model,
@@ -74,11 +84,20 @@ class HiddenLayerClient:
             },
             "input": {"messages": [{"role": "user", "content": text}]},
         }
-        response = await self._request_with_retry(
-            "/detection/v1/interactions",
-            payload,
-            token,
-        )
+        try:
+            response = await self._request_with_retry(
+                "/detection/v1/interactions",
+                payload,
+            )
+        except (httpx.HTTPError, TimeoutError, ValueError) as error:
+            return ScanResult(
+                boundary=boundary,
+                detected=self._settings.hiddenlayer_fail_closed,
+                threat_level="Unknown",
+                action="Error",
+                provider_status="failed",
+                raw={"error_type": type(error).__name__},
+            )
         raw = response.json()
         evaluation: dict[str, Any] = raw.get("evaluation") or {}
         detectors = [
@@ -94,18 +113,22 @@ class HiddenLayerClient:
             action=str(evaluation.get("action") or "Allow"),
             detectors=detectors,
             raw=raw,
+            provider_status="completed",
         )
 
-    async def _request_with_retry(
-        self, path: str, payload: dict[str, Any], token: str
-    ) -> httpx.Response:
+    async def _request_with_retry(self, path: str, payload: dict[str, Any]) -> httpx.Response:
         retryable = {408, 409, 429, 500, 502, 503, 504}
+        token_expired = False
         for attempt in range(3):
+            token = await self._token(force_refresh=token_expired)
             response = await self._client.post(
                 path,
                 json=payload,
                 headers={"Authorization": f"Bearer {token}"},
             )
+            token_expired = response.status_code == 401
+            if token_expired and attempt < 2:
+                continue
             if response.status_code not in retryable or attempt == 2:
                 response.raise_for_status()
                 return response
