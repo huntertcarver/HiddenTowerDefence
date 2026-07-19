@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import logging
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 
@@ -10,6 +12,7 @@ from app.models import EventType, SourceItem, SourceRun, SourceRunStatus, TowerE
 from app.repositories import Repository
 
 ProcessItem = Callable[[SourceItem], Awaitable[bool]]
+logger = logging.getLogger(__name__)
 
 
 class ApifySource:
@@ -32,6 +35,17 @@ class ApifySource:
     async def run_once(self) -> SourceRun | None:
         active_runs = await self._repository.list_active_source_runs()
         if active_runs:
+            logger.info(
+                "apify_source_run %s",
+                json.dumps(
+                    {
+                        "event": "resumed",
+                        "actor": active_runs[0].actor_name,
+                        "run_id": active_runs[0].id,
+                    },
+                    sort_keys=True,
+                ),
+            )
             return await self._complete(active_runs[0])
         return await self._start_and_complete(self._settings.apify_actor_id)
 
@@ -60,6 +74,18 @@ class ApifySource:
                     "fallback": fallback_for_run_id is not None,
                 },
             )
+        )
+        logger.info(
+            "apify_source_run %s",
+            json.dumps(
+                {
+                    "event": "started",
+                    "actor": actor_name,
+                    "run_id": run.id,
+                    "fallback": fallback_for_run_id is not None,
+                },
+                sort_keys=True,
+            ),
         )
         return await self._complete(run)
 
@@ -162,6 +188,23 @@ class ApifySource:
                     "failure": failure_reason,
                 },
             )
+        )
+        log = logger.info if status == SourceRunStatus.SUCCEEDED else logger.warning
+        log(
+            "apify_source_run %s",
+            json.dumps(
+                {
+                    "event": "completed",
+                    "actor": run.actor_name,
+                    "run_id": run.id,
+                    "dataset_id": updated.dataset_id,
+                    "status": status.value,
+                    "duration_ms": updated.duration_ms,
+                    "item_count": item_count,
+                    "failure": failure_reason,
+                },
+                sort_keys=True,
+            ),
         )
         return updated
 
