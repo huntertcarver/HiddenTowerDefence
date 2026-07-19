@@ -519,6 +519,15 @@ document.querySelector("#demo-stop")?.addEventListener("click", () =>
 document.querySelector("#demo-reset")?.addEventListener("click", () =>
   operatorMutation("/api/demo/reset"),
 );
+document.querySelector("#clear-scene")?.addEventListener("click", () => {
+  towerScene.clearEntities();
+  eventsByEntity.clear();
+  selectedEntityId = null;
+  detailPanel.innerHTML = "<p>Scene cleared. New arrivals will appear one at a time.</p>";
+});
+document.querySelector("#apify-run-now")?.addEventListener("click", () =>
+  operatorMutation("/api/apify/run"),
+);
 
 queryForm?.addEventListener("submit", async (event) => {
   event.preventDefault();

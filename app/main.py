@@ -8,7 +8,15 @@ from typing import Annotated, Any
 from uuid import uuid4
 
 import uvicorn
-from fastapi import Depends, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi import (
+    BackgroundTasks,
+    Depends,
+    FastAPI,
+    HTTPException,
+    Request,
+    WebSocket,
+    WebSocketDisconnect,
+)
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -475,6 +483,17 @@ async def resolve_incident(
 @app.post("/api/heartbeat/run", dependencies=[Depends(require_operator)])
 async def run_heartbeat(services: Services) -> dict[str, bool]:
     return {"started": await services["heartbeat"].trigger()}
+
+
+@app.post("/api/apify/run", dependencies=[Depends(require_operator)])
+async def run_apify_now(
+    background_tasks: BackgroundTasks,
+    services: Services,
+) -> dict[str, bool]:
+    if services["settings"].apify_api_token is None:
+        raise HTTPException(status_code=503, detail="Apify is not configured")
+    background_tasks.add_task(services["apify_scheduler"].run_now)
+    return {"accepted": True}
 
 
 @app.get("/api/demo/fixtures")

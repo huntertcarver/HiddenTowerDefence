@@ -164,6 +164,15 @@ export class TowerScene extends Phaser.Scene {
     });
   }
 
+  clearEntities(): void {
+    for (const record of this.entities.values()) {
+      this.tweens.killTweensOf(record.container);
+      this.tweens.killTweensOf(record.sprite);
+      record.container.destroy(true);
+    }
+    this.entities.clear();
+  }
+
   setEntityTitle(entityId: string, title: string): void {
     const record = this.entities.get(entityId);
     if (!record) return;
