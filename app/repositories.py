@@ -71,6 +71,14 @@ class Repository(Protocol):
 
     async def list_events(self, after_id: int = 0, limit: int = 200) -> list[TowerEvent]: ...
 
+    async def claim_tool_request_execution(
+        self, request_id: str, expected_status: ToolStatus
+    ) -> ToolRequest | None: ...
+
+    async def get_approval_for_tool_request(
+        self, tool_request_id: str
+    ) -> Approval | None: ...
+
 
 class SQLiteRepository:
     """Local and test persistence compatible with the production repository contract."""
@@ -598,6 +606,38 @@ class SQLiteRepository:
             for row in rows
         ]
 
+    async def get_approval_for_tool_request(
+        self, tool_request_id: str
+    ) -> Approval | None:
+        row = await (
+            await self.connection.execute(
+                """
+                SELECT id, source_item_id, action, arguments, status,
+                       idempotency_key, tool_request_id, created_at, resolved_at
+                FROM approvals WHERE tool_request_id = ?
+                ORDER BY created_at ASC LIMIT 1
+                """,
+                (tool_request_id,),
+            )
+        ).fetchone()
+        if row is None:
+            return None
+        return Approval(
+            id=row["id"],
+            source_item_id=row["source_item_id"],
+            action=row["action"],
+            arguments=json.loads(row["arguments"]),
+            status=row["status"],
+            idempotency_key=row["idempotency_key"],
+            tool_request_id=row["tool_request_id"],
+            created_at=datetime.fromisoformat(row["created_at"]),
+            resolved_at=(
+                datetime.fromisoformat(row["resolved_at"])
+                if row["resolved_at"]
+                else None
+            ),
+        )
+
     async def resolve_approval(self, approval_id: str, status: ApprovalStatus) -> Approval | None:
         now = datetime.now().astimezone().isoformat()
         async with self.transaction():
@@ -893,6 +933,41 @@ class SQLiteRepository:
             )
         ).fetchone()
         return ToolRequest.model_validate_json(row["payload"]) if row else None
+
+    async def claim_tool_request_execution(
+        self, request_id: str, expected_status: ToolStatus
+    ) -> ToolRequest | None:
+        async with self.transaction():
+            row = await (
+                await self.connection.execute(
+                    "SELECT payload FROM tool_requests WHERE id = ?", (request_id,)
+                )
+            ).fetchone()
+            if row is None:
+                return None
+            request = ToolRequest.model_validate_json(row["payload"])
+            if request.status != expected_status:
+                return None
+            claimed = request.model_copy(
+                update={
+                    "status": ToolStatus.EXECUTING,
+                    "failure_reason": None,
+                    "completed_at": None,
+                }
+            )
+            cursor = await self.connection.execute(
+                """
+                UPDATE tool_requests SET status = ?, payload = ?, completed_at = NULL
+                WHERE id = ? AND status = ?
+                """,
+                (
+                    ToolStatus.EXECUTING.value,
+                    claimed.model_dump_json(),
+                    request_id,
+                    expected_status.value,
+                ),
+            )
+            return claimed if cursor.rowcount == 1 else None
 
     async def update_tool_request(
         self,
@@ -1262,6 +1337,18 @@ class SpannerRepository:
                 return next(iter(rows), None)
 
         return await asyncio.to_thread(read)
+
+    async def get_approval_for_tool_request(
+        self, tool_request_id: str
+    ) -> Approval | None:
+        direct = await self._get_record("approval", tool_request_id)
+        if direct:
+            return Approval.model_validate_json(direct)
+        for payload in await self._list_records("approval", limit=500):
+            approval = Approval.model_validate_json(payload)
+            if approval.tool_request_id == tool_request_id:
+                return approval
+        return None
 
     async def store_source_run(self, run: SourceRun) -> SourceRun:
         await self._put_record(
@@ -2142,6 +2229,49 @@ class SpannerRepository:
 
     async def get_tool_request(self, request_id: str) -> ToolRequest | None:
         payload = await self._get_record("tool_request", request_id)
+        return ToolRequest.model_validate_json(payload) if payload else None
+
+    async def claim_tool_request_execution(
+        self, request_id: str, expected_status: ToolStatus
+    ) -> ToolRequest | None:
+        now = datetime.now(UTC)
+
+        def claim(transaction: spanner.Transaction) -> str | None:
+            rows = transaction.execute_sql(
+                """
+                SELECT payload FROM ProductRecords
+                WHERE record_type = 'tool_request' AND record_id = @id
+                """,
+                params={"id": request_id},
+                param_types={"id": spanner.param_types.STRING},
+            )
+            row = next(iter(rows), None)
+            if row is None:
+                return None
+            request = ToolRequest.model_validate_json(_json_text(row[0]))
+            if request.status != expected_status:
+                return None
+            claimed = request.model_copy(
+                update={
+                    "status": ToolStatus.EXECUTING,
+                    "failure_reason": None,
+                    "completed_at": None,
+                }
+            )
+            transaction.update(
+                "ProductRecords",
+                ["record_type", "record_id", "status", "payload", "updated_at"],
+                [[
+                    "tool_request",
+                    request_id,
+                    ToolStatus.EXECUTING.value,
+                    claimed.model_dump_json(),
+                    now,
+                ]],
+            )
+            return claimed.model_dump_json()
+
+        payload = await asyncio.to_thread(self.database.run_in_transaction, claim)
         return ToolRequest.model_validate_json(payload) if payload else None
 
     async def update_tool_request(

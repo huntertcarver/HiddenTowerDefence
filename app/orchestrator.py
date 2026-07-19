@@ -123,7 +123,7 @@ class Orchestrator:
             },
         )
         arguments = self._tool_arguments(item, triage)
-        await self._dispatcher.request(
+        tool_request = await self._dispatcher.request(
             item.id,
             triage.recommended_action,
             arguments,
@@ -131,7 +131,11 @@ class Orchestrator:
             argument_scan_override=tool_argument_override,
             result_scan_override=tool_result_override,
         )
-        await self._repository.update_source_status(item.id, ProcessingStatus.COMPLETED)
+        await self._repository.update_source_status(
+            item.id,
+            self._dispatcher.processing_status(tool_request.status),
+            tool_request.failure_reason,
+        )
         return True
 
     async def _transition(

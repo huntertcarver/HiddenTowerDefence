@@ -82,6 +82,10 @@ def test_restricted_approval_executes_once(monkeypatch, tmp_path: Path) -> None:
         )
         assert repeated.status_code == 404
         assert len(client.get("/api/briefs").json()) == 1
+        evidence = client.get(
+            f"/api/evidence/{approvals[0]['source_item_id']}"
+        ).json()
+        assert evidence["source"]["processing_status"] == "completed"
 
 
 def test_csrf_and_session_tampering_are_rejected(monkeypatch, tmp_path: Path) -> None:
@@ -127,6 +131,13 @@ def test_malicious_tool_argument_is_blocked(monkeypatch, tmp_path: Path) -> None
             for event in events
         )
         assert any(event["type"] == "tool_blocked" for event in events)
+        source_id = next(
+            event["source_item_id"]
+            for event in events
+            if event["type"] == "content_received"
+        )
+        evidence = client.get(f"/api/evidence/{source_id}").json()
+        assert evidence["source"]["processing_status"] == "blocked"
 
 
 def test_malicious_tool_result_is_blocked(monkeypatch, tmp_path: Path) -> None:
@@ -149,6 +160,13 @@ def test_malicious_tool_result_is_blocked(monkeypatch, tmp_path: Path) -> None:
             and event["payload"].get("reason") == "result_scan"
             for event in events
         )
+        source_id = next(
+            event["source_item_id"]
+            for event in events
+            if event["type"] == "content_received"
+        )
+        evidence = client.get(f"/api/evidence/{source_id}").json()
+        assert evidence["source"]["processing_status"] == "blocked"
 
 
 def test_websocket_replay_resumes_after_cursor_without_duplicates(

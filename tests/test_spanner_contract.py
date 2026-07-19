@@ -11,6 +11,8 @@ from app.models import (
     ProcessingStatus,
     SourceItem,
     TaintRecord,
+    ToolRequest,
+    ToolStatus,
     TowerEvent,
     TrustState,
 )
@@ -84,13 +86,38 @@ async def test_spanner_repository_deduplication_and_event_ordering() -> None:
         )
         assert await repository.is_tainted(source_id)
 
-        approval = await repository.create_approval(
-            Approval(
+        tool_request, created = await repository.create_tool_request(
+            ToolRequest(
                 source_item_id=source_id,
-                action="save_brief",
+                name="save_brief",
                 idempotency_key=uuid4().hex,
             )
         )
+        assert created
+        tool_claim = await repository.claim_tool_request_execution(
+            tool_request.id, ToolStatus.REQUESTED
+        )
+        assert tool_claim is not None
+        assert tool_claim.status == ToolStatus.EXECUTING
+        assert (
+            await repository.claim_tool_request_execution(
+                tool_request.id, ToolStatus.REQUESTED
+            )
+            is None
+        )
+
+        approval = await repository.create_approval(
+            Approval(
+                id=tool_request.id,
+                source_item_id=source_id,
+                action="save_brief",
+                idempotency_key=uuid4().hex,
+                tool_request_id=tool_request.id,
+            )
+        )
+        assert (
+            await repository.get_approval_for_tool_request(tool_request.id)
+        ).id == approval.id
         claimed = await repository.claim_approval_execution(approval.id)
         assert claimed is not None
         assert claimed.status == ApprovalStatus.EXECUTING

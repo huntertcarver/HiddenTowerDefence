@@ -13,7 +13,12 @@ class ControlledTools:
         self._repository = repository
 
     async def execute(
-        self, source_item_id: str, name: str, arguments: dict[str, Any]
+        self,
+        source_item_id: str,
+        name: str,
+        arguments: dict[str, Any],
+        *,
+        operation_id: str,
     ) -> dict[str, Any]:
         if name not in self.NAMES:
             raise ValueError(f"Unknown controlled tool: {name}")
@@ -21,7 +26,12 @@ class ControlledTools:
             title = self._required_text(arguments, "title", fallback="Intelligence brief")
             summary = self._required_text(arguments, "summary")
             brief = await self._repository.store_brief(
-                Brief(source_item_id=source_item_id, title=title, summary=summary)
+                Brief(
+                    id=operation_id,
+                    source_item_id=source_item_id,
+                    title=title,
+                    summary=summary,
+                )
             )
             return {"brief_id": brief.id, "saved": True}
         if name == "draft_alert":
@@ -29,6 +39,7 @@ class ControlledTools:
             body = self._required_text(arguments, "body")
             alert = await self._repository.store_mock_alert(
                 MockAlert(
+                    id=operation_id,
                     source_item_id=source_item_id,
                     subject=subject,
                     body=body,
@@ -40,7 +51,11 @@ class ControlledTools:
                 arguments, "reason", fallback="Controlled quarantine"
             )
             quarantine = await self._repository.store_quarantine(
-                QuarantineRecord(source_item_id=source_item_id, reason=reason)
+                QuarantineRecord(
+                    id=operation_id,
+                    source_item_id=source_item_id,
+                    reason=reason,
+                )
             )
             return {"quarantine_id": quarantine.id, "quarantined": True}
         fixture_id = str(arguments.get("fixture_id") or "safe-reference")

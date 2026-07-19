@@ -11,6 +11,7 @@ from app.models import (
     ApprovalStatus,
     EventType,
     Incident,
+    ProcessingStatus,
     QuarantineRecord,
     ScanBoundary,
     ScanResult,
@@ -56,14 +57,20 @@ class ToolDispatcher:
                 idempotency_key=idempotency_key,
             )
         )
-        if not created and request.status in {
-            ToolStatus.COMPLETED,
-            ToolStatus.BLOCKED,
-            ToolStatus.DEFERRED,
-            ToolStatus.DENIED,
-            ToolStatus.EXECUTING,
-        }:
-            return request
+        if not created:
+            if request.status == ToolStatus.DEFERRED:
+                await self._ensure_approval(
+                    request, await self._repository.is_tainted(source_item_id)
+                )
+                return request
+            if request.status in {
+                ToolStatus.COMPLETED,
+                ToolStatus.BLOCKED,
+                ToolStatus.DENIED,
+                ToolStatus.FAILED,
+                ToolStatus.EXECUTING,
+            }:
+                return request
         if created:
             await self._emit(
                 EventType.TOOL_REQUESTED,
@@ -106,31 +113,47 @@ class ToolDispatcher:
             deferred = await self._repository.update_tool_request(
                 request.id, ToolStatus.DEFERRED
             )
-            approval = await self._repository.create_approval(
-                Approval(
-                    source_item_id=source_item_id,
-                    action=name,
-                    arguments=arguments,
-                    idempotency_key=idempotency_key,
-                    tool_request_id=request.id,
-                )
+            if deferred is None or deferred.status != ToolStatus.DEFERRED:
+                return await self._repository.get_tool_request(request.id) or request
+            await self._ensure_approval(deferred, tainted)
+            return deferred
+        return await self._execute(
+            request,
+            expected_status=ToolStatus.REQUESTED,
+            result_scan_override=result_scan_override,
+        )
+
+    async def _ensure_approval(
+        self, request: ToolRequest, tainted: bool
+    ) -> Approval:
+        existing = await self._repository.get_approval_for_tool_request(request.id)
+        if existing is not None:
+            return existing
+        approval = await self._repository.create_approval(
+            Approval(
+                id=request.id,
+                source_item_id=request.source_item_id,
+                action=request.name,
+                arguments=request.arguments,
+                idempotency_key=request.idempotency_key,
+                tool_request_id=request.id,
             )
-            await self._events.publish(
-                TowerEvent(
-                    type=EventType.APPROVAL_CREATED,
-                    source_item_id=source_item_id,
-                    entity_id=source_item_id,
-                    correlation_id=request.id,
-                    payload={
-                        "approval_id": approval.id,
-                        "tool_request_id": request.id,
-                        "action": name,
-                        "tainted": tainted,
-                    },
-                )
+        )
+        await self._events.publish(
+            TowerEvent(
+                type=EventType.APPROVAL_CREATED,
+                source_item_id=request.source_item_id,
+                entity_id=request.source_item_id,
+                correlation_id=request.id,
+                payload={
+                    "approval_id": approval.id,
+                    "tool_request_id": request.id,
+                    "action": request.name,
+                    "tainted": tainted,
+                },
             )
-            return deferred or request
-        return await self._execute(request, result_scan_override=result_scan_override)
+        )
+        return approval
 
     async def approve(self, approval_id: str) -> Approval | None:
         approval = await self._repository.claim_approval_execution(approval_id)
@@ -146,13 +169,20 @@ class ToolDispatcher:
                 approval_id, ApprovalStatus.FAILED
             )
             return None
-        completed = await self._execute(request)
+        completed = await self._execute(
+            request, expected_status=ToolStatus.DEFERRED
+        )
         final_status = (
             ApprovalStatus.APPROVED
             if completed.status == ToolStatus.COMPLETED
             else ApprovalStatus.FAILED
         )
         resolved = await self._repository.finalize_approval(approval_id, final_status)
+        await self._repository.update_source_status(
+            approval.source_item_id,
+            self.processing_status(completed.status),
+            completed.failure_reason,
+        )
         if resolved:
             await self._events.publish(
                 TowerEvent(
@@ -181,10 +211,14 @@ class ToolDispatcher:
             )
         await self._repository.store_quarantine(
             QuarantineRecord(
+                id=approval.tool_request_id or approval.id,
                 source_item_id=approval.source_item_id,
                 reason=f"Operator denied {approval.action}",
                 tool_request_id=approval.tool_request_id,
             )
+        )
+        await self._repository.update_source_status(
+            approval.source_item_id, ProcessingStatus.BLOCKED
         )
         await self._events.publish(
             TowerEvent(
@@ -205,15 +239,21 @@ class ToolDispatcher:
         self,
         request: ToolRequest,
         *,
+        expected_status: ToolStatus,
         result_scan_override: ScanResult | None = None,
     ) -> ToolRequest:
-        executing = await self._repository.update_tool_request(
-            request.id, ToolStatus.EXECUTING
+        executing = await self._repository.claim_tool_request_execution(
+            request.id, expected_status
         )
-        request = executing or request
+        if executing is None:
+            return await self._repository.get_tool_request(request.id) or request
+        request = executing
         try:
             result = await self._tools.execute(
-                request.source_item_id, request.name, request.arguments
+                request.source_item_id,
+                request.name,
+                request.arguments,
+                operation_id=request.id,
             )
             result_scan = await self._scanner.scan(
                 ScanBoundary.TOOL_RESULT,
@@ -264,6 +304,16 @@ class ToolDispatcher:
                 {"tool_request_id": request.id, "reason": "invalid_arguments"},
             )
             return failed or request
+
+    @staticmethod
+    def processing_status(status: ToolStatus) -> ProcessingStatus:
+        if status == ToolStatus.COMPLETED:
+            return ProcessingStatus.COMPLETED
+        if status in {ToolStatus.BLOCKED, ToolStatus.DENIED}:
+            return ProcessingStatus.BLOCKED
+        if status == ToolStatus.FAILED:
+            return ProcessingStatus.FAILED
+        return ProcessingStatus.PROCESSING
 
     async def _escalate_from_scan(
         self, source_item_id: str, state: TrustState, reason: str
