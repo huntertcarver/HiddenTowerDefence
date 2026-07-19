@@ -75,8 +75,9 @@ def apply_migrations(project_id: str, instance_id: str, database_id: str) -> Non
     migrations = sorted(migrations_dir.glob("*.sql"))
     tables = _table_names(database)
     has_history = "SchemaMigrations" in tables
+    applied = _applied_migrations(database) if has_history else {}
 
-    if not has_history:
+    if not applied:
         initial_present = tables & INITIAL_TABLES
         if initial_present and initial_present != INITIAL_TABLES:
             missing = ", ".join(sorted(INITIAL_TABLES - initial_present))
@@ -85,13 +86,14 @@ def apply_migrations(project_id: str, instance_id: str, database_id: str) -> Non
         if not initial_present:
             operation = database.update_ddl(_statements(first))
             operation.result()
-        second_statements = _statements(migrations[1])
-        operation = database.update_ddl([second_statements[0]])
-        operation.result()
+        if not has_history:
+            second_statements = _statements(migrations[1])
+            operation = database.update_ddl([second_statements[0]])
+            operation.result()
         _record_migration(database, 1, first.stem, _checksum(first))
         print(f"Baselined {first.name}")
+        applied = _applied_migrations(database)
 
-    applied = _applied_migrations(database)
     expected_versions = list(range(1, len(applied) + 1))
     if sorted(applied) != expected_versions:
         raise RuntimeError("Spanner migration history is out of order")
