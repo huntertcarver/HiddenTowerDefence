@@ -8,6 +8,7 @@ dependencies = [
   "aiosqlite",
   "fastapi",
   "google-cloud-spanner",
+  "google-cloud-secret-manager",
   "httpx",
   "openai",
   "pydantic",

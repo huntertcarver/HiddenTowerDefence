@@ -115,6 +115,7 @@ async def index() -> FileResponse:
 
 
 @app.get("/healthz")
+@app.get("/health")
 async def healthz() -> dict[str, str]:
     return {"status": "ok"}
 

@@ -28,4 +28,4 @@ jobs:
             echo "CLOUD_DNS_NAMESERVERS is not set yet; delegation has not been requested."
             exit 0
           fi
-          curl --fail --max-time 20 --retry 3 "https://$DOMAIN/healthz"
+          curl --fail --max-time 20 --retry 3 "https://$DOMAIN/health"
