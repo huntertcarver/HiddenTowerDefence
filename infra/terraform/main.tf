@@ -5,6 +5,19 @@ provider "google" {
 
 data "google_project" "current" {}
 
+locals {
+  deployer_platform_reader_roles = toset([
+    "roles/certificatemanager.viewer",
+    "roles/compute.viewer",
+    "roles/dns.reader",
+    "roles/iam.roleViewer",
+    "roles/iam.serviceAccountViewer",
+    "roles/iam.workloadIdentityPoolViewer",
+    "roles/logging.viewer",
+    "roles/monitoring.viewer",
+  ])
+}
+
 resource "google_service_account" "runtime" {
   project      = var.project_id
   account_id   = "hiddentower-runtime-prod"
@@ -19,8 +32,15 @@ resource "google_service_account" "deployer" {
 
 resource "google_storage_bucket_iam_member" "deployer_terraform_state" {
   bucket = var.terraform_state_bucket
-  role   = "roles/storage.objectAdmin"
+  role   = "roles/storage.admin"
   member = "serviceAccount:${google_service_account.deployer.email}"
+}
+
+resource "google_project_iam_member" "deployer_platform_reader" {
+  for_each = local.deployer_platform_reader_roles
+  project  = var.project_id
+  role     = each.value
+  member   = "serviceAccount:${google_service_account.deployer.email}"
 }
 
 resource "google_iam_workload_identity_pool" "github" {
